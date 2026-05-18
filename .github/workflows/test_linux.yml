@@ -1,0 +1,51 @@
+name: Test (Linux)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon0 libxcb-* libdbus-1-3 libgomp1
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Create official_nodes directory
+        run: |
+          mkdir -p official_nodes
+          echo '{"repo_name":"localflow-official-nodes","repo_version":"0.0.0","nodes":{}}' > official_nodes/manifest.json
+
+      - name: Run unit tests
+        run: |
+          python -m pytest test/unit/ -v --tb=short -x
+
+      - name: Run integration tests
+        run: |
+          python -m pytest test/integration/ -v --tb=short -x

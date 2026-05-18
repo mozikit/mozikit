@@ -1,0 +1,246 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.vscode/**'
+      - '.idea/**'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish (for example: v0.1.0)"
+        required: true
+        type: string
+
+# Prevent multiple builds running simultaneously
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RESOLVED_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref }}
+
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    
+    env:
+      PYTHONUTF8: "1"
+
+    # Set timeout to prevent hanging builds
+    timeout-minutes: 30
+    
+    defaults:
+      run:
+        shell: bash
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ env.RESOLVED_REF }}
+        fetch-depth: 1
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: 'pip'  # Cache pip packages
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pyinstaller Pillow requests
+        
+    - name: Sync official nodes snapshot
+      run: |
+        python -c "
+        import json, os, shutil
+        from pathlib import Path
+        src = Path('official_nodes')
+        if src.exists():
+            print('[OK] official_nodes/ snapshot already present')
+        else:
+            print('[INFO] official_nodes/ not found, creating empty placeholder')
+            src.mkdir(parents=True, exist_ok=True)
+            (src / 'manifest.json').write_text(json.dumps({
+                'repo_name': 'localflow-official-nodes',
+                'repo_url': 'https://github.com/localflow-app/localflow-official-nodes',
+                'snapshot_version': '0.0.0',
+                'snapshot_commit': '',
+                'nodes': []
+            }, ensure_ascii=False, indent=2), encoding='utf-8')
+        "
+        
+    - name: Resolve release metadata
+      id: release_meta
+      shell: pwsh
+      run: |
+        $tag = "${{ github.ref_name }}"
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          $tag = "${{ github.event.inputs.release_tag }}"
+        }
+        if (-not $tag.StartsWith("v")) {
+          throw "Release tag must start with 'v' (got: $tag)."
+        }
+        $version = $tag.TrimStart("v")
+        "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+    - name: Build executable
+      run: |
+        python auto_build.py
+
+    - name: Install WiX Toolset
+      shell: pwsh
+      run: choco install wixtoolset --no-progress -y
+
+    - name: Build MSI installer
+      shell: pwsh
+      run: |
+        ./scripts/build_msi.ps1 -Tag "${{ steps.release_meta.outputs.tag }}"
+
+    - name: Create zip package
+      run: |
+        mkdir -p release
+        cd dist
+        7z a -tzip -mx5 ../release/LocalFlow-Windows-x64.zip LocalFlow
+        cd ..
+
+    - name: Calculate release hashes
+      id: hashes
+      shell: pwsh
+      run: |
+        $msiPath = "release/localflow-${{ steps.release_meta.outputs.tag }}-x64.msi"
+        if (-not (Test-Path $msiPath)) {
+          throw "MSI artifact not found: $msiPath"
+        }
+        $sha = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash
+        "msi_sha256=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "$sha  $(Split-Path -Leaf $msiPath)" | Out-File -FilePath "release/SHA256SUMS" -Encoding ascii
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: localflow-release-assets
+        path: release/
+        retention-days: 7
+
+  publish_release:
+    name: Publish Release Assets
+    runs-on: ubuntu-latest
+    needs: build_windows
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ env.RESOLVED_REF }}
+
+    - name: Resolve release metadata
+      id: release_meta
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+          tag="${{ github.event.inputs.release_tag }}"
+        else
+          tag="${GITHUB_REF_NAME}"
+        fi
+        if [[ ! "${tag}" =~ ^v.+$ ]]; then
+          echo "Release tag must start with 'v' (got: ${tag})." >&2
+          exit 1
+        fi
+        echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+    - name: Download release assets
+      uses: actions/download-artifact@v4
+      with:
+        name: localflow-release-assets
+        path: release
+
+    - name: Create release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.release_meta.outputs.tag }}
+        files: |
+          release/LocalFlow-Windows-x64.zip
+          release/localflow-*-x64.msi
+          release/SHA256SUMS
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  submit_winget:
+    name: Submit WinGet manifest
+    runs-on: windows-latest
+    needs: publish_release
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ env.RESOLVED_REF }}
+
+    - name: Resolve release metadata
+      id: release_meta
+      shell: pwsh
+      run: |
+        $tag = "${{ github.ref_name }}"
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          $tag = "${{ github.event.inputs.release_tag }}"
+        }
+        if (-not $tag.StartsWith("v")) {
+          throw "Release tag must start with 'v' (got: $tag)."
+        }
+        "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "version=$($tag.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+    - name: Validate WINGET_TOKEN is configured
+      shell: pwsh
+      env:
+        WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      run: |
+        if ([string]::IsNullOrWhiteSpace($env:WINGET_TOKEN)) {
+          throw "Missing WINGET_TOKEN secret."
+        }
+
+    - name: Install wingetcreate
+      shell: pwsh
+      run: winget install --id Microsoft.WingetCreate -e --source winget --accept-package-agreements --accept-source-agreements
+
+    - name: Download MSI for hash and manifest generation
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "release" | Out-Null
+        $tag = "${{ steps.release_meta.outputs.tag }}"
+        $url = "https://github.com/${{ github.repository }}/releases/download/$tag/localflow-$tag-x64.msi"
+        Invoke-WebRequest -Uri $url -OutFile "release/localflow-$tag-x64.msi"
+
+    - name: Generate WinGet manifests
+      shell: pwsh
+      run: |
+        ./scripts/generate_winget_manifest.ps1 `
+          -Tag "${{ steps.release_meta.outputs.tag }}" `
+          -Repository "${{ github.repository }}" `
+          -MsiPath "release/localflow-${{ steps.release_meta.outputs.tag }}-x64.msi"
+
+    - name: Submit to winget-pkgs
+      shell: pwsh
+      env:
+        WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      run: |
+        $version = "${{ steps.release_meta.outputs.version }}"
+        $manifestDir = ".\winget-manifests\manifests\l\localflow-app\LocalFlow\$version"
+        $prTitle = "Add localflow-app.LocalFlow $version"
+        wingetcreate submit --prtitle $prTitle --token $env:WINGET_TOKEN --no-open $manifestDir
