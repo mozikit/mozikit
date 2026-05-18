@@ -46,6 +46,7 @@
 - **GitHub 节点仓库** - 从 GitHub 导入社区节点（支持 OAuth 认证）
 - **节点搜索和分类浏览** - 快速查找所需节点
 - **节点分享功能** - 打包节点为 zip 格式分享
+- **节点版本管理** - 支持多版本共存与迁移
 
 ### 🌙 主题系统
 - 明暗主题切换
@@ -65,11 +66,17 @@
 - 后台定时任务持续运行
 - 强制退出保护机制
 
+### 🌐 REST API 服务
+- 基于 FastAPI 的工作流执行和定时任务管理 HTTP 接口
+- 完整的 OpenAPI 文档（`/docs`）
+- 健康检查端点（`/health`）
+
 ## 📋 目录
 
 - [快速开始](#快速开始)
 - [环境要求](#环境要求)
 - [安装指南](#安装指南)
+- [CLI 命令行接口](#cli-命令行接口)
 - [使用说明](#使用说明)
 - [核心功能详解](#核心功能详解)
 - [项目结构](#项目结构)
@@ -100,43 +107,27 @@ python main.py
 
 ### 方式二：使用可执行文件
 
-#### 生成可执行文件
-
 ```bash
 # 使用 Python 构建脚本
 python build.py
 
-# 或使用批处理脚本 (Windows)
-build.bat
-
-# 或使用 Shell 脚本 (Linux/Mac)
-./build.sh
+# 构建完成后，可执行文件位于 dist/LocalFlow/ 目录
+cd dist/LocalFlow
+./LocalFlow  # Linux/Mac
+LocalFlow.exe  # Windows
 ```
-
-构建完成后，可执行文件位于 `dist/LocalFlow/` 目录。
-
-#### 运行应用
-- **目录版本**（推荐，符合 PySide6 LGPL 要求）：
-  ```bash
-  cd dist/LocalFlow
-  ./LocalFlow  # Linux/Mac
-  LocalFlow.exe  # Windows
-  ```
-
-- **便携版本**：
-  ```bash
-  cd dist/LocalFlow_Portable
-  ./Start_LocalFlow.bat  # Windows
-  ./start_localflow.sh   # Linux/Mac
-  ```
 
 ## 🖥️ 环境要求
 
 - **Python**: 3.8 或更高版本
-- **依赖库**: 
+- **依赖库**:
   - PySide6 (Qt for Python)
   - Pillow (图像处理)
   - UV (现代 Python 包管理器)
+  - Typer + Rich (CLI 框架)
+  - Requests (HTTP 请求)
+  - Keyring (系统密钥链)
+  - FastAPI + Uvicorn (REST API，可选)
 - **操作系统**: Windows 10/11, macOS 10.15+, Linux (Ubuntu 18.04+)
 - **内存**: 最低 4GB RAM，推荐 8GB+
 
@@ -191,6 +182,9 @@ pip install -r requirements.txt
 uv venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv pip install -r requirements.txt
+
+# 如需 REST API 服务
+uv pip install fastapi uvicorn
 ```
 
 3. **运行应用**
@@ -218,7 +212,7 @@ python main.py [命令] [选项]
 
 无参数时自动启动 GUI 模式（`python main.py`），或显示 CLI 帮助（`localflow` / `localflow --help`）。
 
-### 命令树（39 条）
+### 命令树
 
 ```
 localflow
@@ -258,7 +252,8 @@ localflow
 ├── workflow                        工作流管理
 │   ├── list                        列出已保存的工作流
 │   ├── validate <file>             验证工作流格式
-│   └── describe <file>             显示工作流详情
+│   ├── describe <file>             显示工作流详情
+│   └── stats                       显示工作流执行统计
 └── serve [选项]                    启动 FastAPI REST API 服务
 ```
 
@@ -378,6 +373,9 @@ localflow workflow validate workflows/my_wf/workflow.json
 
 # 查看工作流详情
 localflow workflow describe workflows/my_wf/workflow.json
+
+# 查看执行统计
+localflow workflow stats
 ```
 
 **启动 API 服务：**
@@ -445,6 +443,11 @@ localflow serve --port 8080 --host 0.0.0.0
   - [UV 检测改进](docs/architecture/UV_DETECTION_IMPROVEMENT.md) - UV 检测算法
   - [自定义 UV 设置](docs/architecture/CUSTOM_UV_SETTINGS.md) - 自定义功能实现
 
+### 其他文档
+- **[AI 工具调用实现](AI_AGENT_TOOLS_IMPLEMENTATION.md)** - AI 工具调用接口设计
+- **[UI 优化总结](UI_OPTIMIZATION_SUMMARY.md)** - 界面优化方案与效果
+- **[节点版本系统](docs/NODE_VERSION_SYSTEM.md)** - 节点版本管理与迁移
+
 ### 测试文档
 - **[测试文档](test/README.md)** - 测试说明和运行指南
 
@@ -485,15 +488,6 @@ LocalFlow 内置 AI 聊天功能，支持自然语言与工作流交互：
 4. **依赖管理** - 自动安装节点所需 Python 包
 5. **节点分享** - 导出为 zip 文件与他人分享
 
-### 主题与个性化
-
-自定义界面外观：
-
-1. **明暗切换** - 一键切换亮色/暗色主题
-2. **UI 优化** - 现代化设计，支持圆角、阴影、平滑动画
-3. **Toast 提示** - 非阻塞式气泡提示，操作更流畅
-4. **面板布局** - 可拖拽调整面板宽度，支持收起/展开
-
 ### 节点仓库
 
 扩展节点库：
@@ -503,6 +497,16 @@ LocalFlow 内置 AI 聊天功能，支持自然语言与工作流交互：
 3. **OAuth 认证** - 安全连接 GitHub 账号
 4. **节点搜索** - 快速查找所需节点
 5. **分类浏览** - 按类别查看节点
+6. **版本管理** - 支持多版本节点管理和自动迁移
+
+### 主题与个性化
+
+自定义界面外观：
+
+1. **明暗切换** - 一键切换亮色/暗色主题
+2. **UI 优化** - 现代化设计，支持圆角、阴影、平滑动画
+3. **Toast 提示** - 非阻塞式气泡提示，操作更流畅
+4. **面板布局** - 可拖拽调整面板宽度，支持收起/展开
 
 ## 🏗️ 项目结构
 
@@ -510,69 +514,117 @@ LocalFlow 内置 AI 聊天功能，支持自然语言与工作流交互：
 LocalFlow/
 ├── src/                           # 源代码
 │   ├── core/                     # 核心逻辑层（CLI 和 GUI 共享）
-│   │   ├── node_base.py         # 节点基类定义
-│   │   ├── node_registry.py     # 节点注册表
-│   │   ├── uv_manager.py        # UV 虚拟环境管理
-│   │   ├── workflow_executor.py # 工作流执行引擎
-│   │   ├── workflow_scanner.py  # 工作流扫描器
-│   │   ├── workflow_runner.py   # 工作流运行器
-│   │   ├── config_manager.py    # 配置管理器
-│   │   ├── cron_utils.py        # Cron 表达式工具（无 PySide6 依赖）
-│   │   ├── headless_scheduler.py# 无头调度器（CLI 用）
-│   │   ├── scheduler_manager.py # 定时任务管理器（GUI 用）
-│   │   ├── theme_manager.py     # 主题管理器
+│   │   ├── __init__.py
+│   │   ├── _file_utils.py       # 原子文件写入工具
+│   │   ├── _version.py          # 版本号（自动生成）
+│   │   ├── ai_chat_context.py   # AI 对话上下文构建
 │   │   ├── ai_chat_service.py   # AI 聊天服务
 │   │   ├── ai_node_generator.py # AI 节点生成服务
-│   │   ├── ai_chat_context.py   # AI 对话上下文构建
-│   │   ├── custom_node_manager.py # 自定义节点管理器
-│   │   ├── node_repo_manager.py # 节点仓库管理器
-│   │   ├── credential_store.py  # 凭据存储（GitHub OAuth等）
+│   │   ├── ai_tool_executor.py  # AI 工具调用执行器
 │   │   ├── code_safety.py       # 代码安全审查
+│   │   ├── config_manager.py    # 配置管理器
+│   │   ├── credential_store.py  # 凭据存储（GitHub OAuth等）
+│   │   ├── cron_utils.py        # Cron 表达式工具（无 PySide6 依赖）
+│   │   ├── custom_node_manager.py # 自定义节点管理器
+│   │   ├── exceptions.py        # 统一错误码与异常体系
+│   │   ├── github_oauth.py      # GitHub Device Flow OAuth
+│   │   ├── headless_scheduler.py# 无头调度器（CLI 用）
+│   │   ├── log_manager.py       # 日志初始化与管理
+│   │   ├── node_base.py         # 节点基类定义
+│   │   ├── node_extension_registries.py # 节点扩展注册
+│   │   ├── node_registry.py     # 节点注册表
+│   │   ├── node_repo_manager.py # 节点仓库管理器
+│   │   ├── node_version_manager.py # 节点版本管理
 │   │   ├── playwright_node_utils.py # Playwright 节点工具
+│   │   ├── python_syntax_highlighter.py # Python 语法高亮
+│   │   ├── scheduler_manager.py # 定时任务管理器（GUI 用）
+│   │   ├── theme_manager.py     # 主题管理器
+│   │   ├── uv_manager.py        # UV 虚拟环境管理
+│   │   ├── workflow_executor.py # 工作流执行引擎
+│   │   ├── workflow_runner.py   # 工作流运行器
+│   │   ├── workflow_run_worker.py # 工作流后台运行线程
+│   │   ├── workflow_scanner.py  # 工作流扫描器
 │   │   └── providers/           # 外部节点提供者
 │   │       └── github_provider.py # GitHub 节点提供者
 │   ├── cli.py                   # CLI 入口（Typer 命令树）
+│   ├── main_window.py           # 主窗口
 │   ├── dialogs/                  # 对话框组件
-│   │   ├── settings_dialog.py   # 设置对话框
 │   │   ├── add_node_dialog.py   # 添加节点对话框
-│   │   ├── source_code_dialog.py # 源代码编辑对话框
-│   │   └── playwright_script_dialog.py # Playwright 脚本对话框
-│   ├── views/                    # 视图组件
-│   │   ├── main_window.py       # 主窗口（已迁移到 src/main_window.py）
-│   │   ├── workflow_canvas.py   # 工作流画布
-│   │   ├── workflow_tab_widget.py # 标签页组件
-│   │   ├── node_graphics.py     # 节点图形
-│   │   ├── node_browser.py      # 节点浏览器
-│   │   ├── node_properties.py   # 节点属性面板
-│   │   ├── execution_results_widget.py # 执行结果面板
-│   │   ├── ai_chat_widget.py    # AI 聊天面板
-│   │   ├── overview_widget.py   # 总览面板（含定时任务管理）
-│   │   └── toast_widget.py      # Toast 气泡提示
-│   └── main_window.py           # 主窗口
+│   │   ├── playwright_script_dialog.py # Playwright 脚本对话框
+│   │   ├── settings_dialog.py   # 设置对话框
+│   │   └── source_code_dialog.py # 源代码编辑对话框
+│   └── views/                    # 视图组件
+│       ├── _canvas_adapter.py   # 画布适配器（AI 工具桥接）
+│       ├── ai_chat_widget.py    # AI 聊天面板
+│       ├── execution_results_widget.py # 执行结果面板
+│       ├── node_browser.py      # 节点浏览器
+│       ├── node_graphics.py     # 节点图形
+│       ├── node_properties.py   # 节点属性面板
+│       ├── overview_widget.py   # 总览面板（含定时任务管理）
+│       ├── toast_widget.py      # Toast 气泡提示
+│       ├── workflow_canvas.py   # 工作流画布
+│       └── workflow_tab_widget.py # 标签页组件
 ├── test/                         # 测试套件
+│   ├── conftest.py              # 共享 pytest fixtures
+│   ├── run_tests.py             # 测试运行器
+│   ├── test_config.py           # 配置测试
 │   ├── unit/                    # 单元测试
+│   │   ├── test_ai_node_generator.py
+│   │   ├── test_ai_node_integration.py
+│   │   ├── test_cli.py
+│   │   ├── test_cli_new.py
+│   │   ├── test_cli_performance.py
+│   │   ├── test_config_manager_concurrency.py
+│   │   ├── test_cron_utils.py
+│   │   ├── test_custom_settings.py
+│   │   ├── test_dependencies.py
+│   │   ├── test_github_oauth.py
+│   │   ├── test_github_provider.py
+│   │   ├── test_headless_scheduler.py
+│   │   ├── test_main_cli_detection.py
+│   │   ├── test_node_extension_registries.py
+│   │   ├── test_official_data_nodes.py
+│   │   ├── test_playwright_node_integration.py
+│   │   ├── test_scheduler_manager.py
+│   │   ├── test_uv_detection.py
+│   │   ├── test_uv_settings.py
+│   │   └── test_workflow_runner.py
 │   ├── integration/             # 集成测试
-│   ├── ui/                      # UI 测试
-│   └── run_tests.py            # 测试运行器
+│   │   ├── test_cli_scenarios.py
+│   │   ├── test_delete_node.py
+│   │   ├── test_final_fixes.py
+│   │   ├── test_fixes.py
+│   │   ├── test_improvements.py
+│   │   ├── test_mirror_effectiveness.py
+│   │   ├── test_node_features_full.py
+│   │   ├── test_save_fix.py
+│   │   ├── test_tab_management.py
+│   │   └── test_workflow.py
+│   └── ui/                      # UI 测试
+│       ├── test_settings_fix.py
+│       ├── test_settings_ui.py
+│       └── test_themes.py
 ├── docs/                         # 文档
 │   ├── user-guide/              # 用户指南
 │   ├── development/             # 开发文档
-│   └── architecture/            # 架构文档
+│   ├── architecture/            # 架构文档
+│   └── NODE_VERSION_SYSTEM.md   # 节点版本系统
 ├── assets/                       # 资源文件
-│   ├── icons/                   # 图标资源
-│   └── localflow.ico           # 应用图标
+│   └── icons/                   # 图标资源
+├── scripts/                      # 构建/部署脚本
+│   ├── build_msi.ps1            # MSI 安装包构建
+│   └── generate_winget_manifest.ps1 # WinGet 清单生成
 ├── workflows/                    # 工作流数据存储
-│   ├── example_basic_calc/      # 示例：基础计算
-│   ├── IntegrationFlow/         # 示例：集成工作流
-│   └── test_opt_workflow/       # 测试工作流
+│   └── example_basic_calc/      # 示例：基础计算
 ├── examples/                     # 示例代码
+│   └── simple_workflow_example.py
 ├── user_data/                    # 用户数据（配置、节点、历史等）
-├── config.json                  # 应用配置文件
-├── requirements.txt             # Python 依赖
 ├── build.py                     # 构建脚本
-├── auto_build.py               # 自动构建脚本
-├── LocalFlow.spec               # PyInstaller 配置
+├── auto_build.py                # 自动构建脚本
+├── conftest.py                  # 顶层 pytest 配置
 ├── main.py                      # 应用入口
+├── pyproject.toml               # 项目元数据与构建配置
+├── requirements.txt             # Python 依赖
 ├── LICENSE                      # Apache 2.0 许可证
 └── README.md                    # 本文档
 ```
@@ -589,17 +641,19 @@ python test/run_tests.py
 python test/run_tests.py unit         # 单元测试
 python test/run_tests.py integration  # 集成测试
 python test/run_tests.py ui           # UI 测试
-
-# 使用测试运行脚本 (Windows)
-run_tests.bat
 ```
 
 ### 测试覆盖
 
+- **CLI 测试** - 命令行解析、子命令执行、JSON 输出
 - **UV 功能测试** - UV 检测、路径管理、镜像配置
 - **工作流测试** - 工作流执行、节点管理、标签页功能
-- **用户界面测试** - 设置对话框、主题切换、用户交互
+- **用户界面测试** - 设置对话框、主题切换
+- **AI 功能测试** - AI 节点生成、工具调用集成
+- **GitHub OAuth 测试** - Device Flow 认证流程
+- **定时调度测试** - Cron 表达式、任务管理器
 - **系统集成测试** - 组件间交互、配置管理、错误处理
+- **性能测试** - CLI 命令响应时间
 
 详细测试说明请查看 [测试文档](test/README.md)。
 
@@ -629,32 +683,12 @@ index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 ### 应用配置
 
-应用配置文件 `config.json` 存储：
+应用配置通过 `ConfigManager` 统一管理：
 - 窗口几何信息（位置、大小）
 - Dock 面板状态（可见性、宽度）
 - 用户偏好设置
-
-示例配置：
-```json
-{
-  "dock_states": {
-    "node_browser": {
-      "visible": true,
-      "width": 300
-    },
-    "node_properties": {
-      "visible": true,
-      "width": 300
-    }
-  },
-  "window_geometry": {
-    "x": 0,
-    "y": 23,
-    "width": 1707,
-    "height": 889
-  }
-}
-```
+- AI 配置（API key 加密存储）
+- GitHub OAuth 凭据
 
 ### 工作流配置
 
@@ -680,17 +714,15 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # 安装开发依赖
 uv pip install -r requirements.txt
 uv pip install pytest pytest-qt  # 测试依赖
-
-# 安装 pre-commit 钩子（如果有）
-pre-commit install
 ```
 
 ### 代码结构
 
-- **MVC 架构**：模型（Model）-视图（View）-控制器（Controller）分离
+- **分层架构**：核心逻辑层（core）与 GUI 层分离，CLI 和 GUI 共享 core
 - **模块化设计**：核心功能按模块组织，便于维护和扩展
 - **事件驱动**：基于 PySide6 信号槽机制的事件处理
 - **插件系统**：支持外部节点提供者（如 GitHubProvider）
+- **AI 工具调用**：通过 `AIToolExecutor` 实现对工作流画布的 AI 驱动操作
 
 ### 添加新节点
 
@@ -708,7 +740,7 @@ class MyCustomNode(NodeBase):
         super().__init__(node_id, "My Custom Node", NodeType.PROCESSOR)
         self.add_input_port("input_data")
         self.add_output_port("output_data")
-    
+
     def execute(self):
         # 节点执行逻辑
         input_data = self.get_input("input_data")
@@ -783,7 +815,7 @@ limitations under the License.
 
 <div align="center">
 
-**⭐ 如果这个项目对你有帮助，请给我们一个 Star！** 
+**⭐ 如果这个项目对你有帮助，请给我们一个 Star！**
 
 Made with ❤️ by LocalFlow Contributors
 
