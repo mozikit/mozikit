@@ -216,45 +216,60 @@ python main.py [命令] [选项]
 
 ```
 localflow
-├── run <workflow.json> [选项]      执行工作流
-├── schedule                        定时任务管理
-│   ├── list                        列出所有定时任务
-│   ├── add <path> [选项]           添加定时任务
-│   ├── remove <id>                 删除定时任务
-│   ├── update <id> [选项]          更新定时任务（name/cron/enabled）
-│   ├── run <id>                    立即执行指定任务
-│   ├── status                      查看调度器状态
-│   └── daemon [选项]               启动调度器守护进程（带实时回调通知）
-├── env                             虚拟环境管理
-│   ├── list                        列出所有虚拟环境
-│   ├── create <name> [选项]        创建虚拟环境
-│   ├── remove <name>               删除虚拟环境
-│   ├── status                      显示 UV 安装状态/路径/镜像/环境列表
-│   └── set-mirror <url>            设置 UV 包镜像地址
-├── node                            节点管理
-│   ├── list                        列出所有可用节点（含彩色来源标签）
-│   ├── info <name>                 查看节点详细信息
-│   ├── create <name> [选项]        创建自定义节点
-│   ├── delete <type>               删除自定义节点
-│   ├── export <type> <path> [选项] 导出节点为 ZIP 包
-│   ├── import <path>               从 ZIP 包导入节点
-│   ├── generate <name> [选项]      AI 生成自定义节点
-│   ├── check-safety <path>         检查 Python 代码安全性
-│   └── repo                        远程节点仓库管理
-│       ├── list                    列出远程仓库可用节点
-│       ├── check-updates           检查官方节点更新
-│       └── install <type> [选项]   从远程仓库安装/更新节点
-├── config                          配置管理
-│   ├── show                        显示配置（敏感字段自动解密脱敏）
-│   ├── set <key> <value>           设置配置项（敏感字段加密存储）
-│   ├── github-login [选项]         GitHub Device Flow 登录
-│   └── github-logout               清除 GitHub 登录凭证
-├── workflow                        工作流管理
-│   ├── list                        列出已保存的工作流
-│   ├── validate <file>             验证工作流格式
-│   ├── describe <file>             显示工作流详情
-│   └── stats                       显示工作流执行统计
-└── serve [选项]                    启动 FastAPI REST API 服务
+├── run <path> | --name <name> [选项]  执行工作流（路径或按名称）
+├── help                                显示帮助信息
+├── schedule                            定时任务管理
+│   ├── list                            列出所有定时任务
+│   ├── add <path> [选项]               添加定时任务
+│   ├── remove <id>                     删除定时任务
+│   ├── update <id> [选项]              更新定时任务（name/cron/enabled）
+│   ├── run <id>                        立即执行指定任务
+│   ├── status                          查看调度器状态
+│   ├── pause <id>                      暂停定时任务
+│   ├── resume <id>                     恢复定时任务
+│   └── daemon [选项]                   启动调度器守护进程（带实时回调通知）
+├── env                                 虚拟环境管理
+│   ├── list                            列出所有虚拟环境
+│   ├── create <name> [选项]            创建虚拟环境
+│   ├── remove <name>                   删除虚拟环境
+│   ├── install <name> <pkgs...>        在虚拟环境中安装包
+│   ├── status                          显示 UV 安装状态/路径/镜像/环境列表
+│   └── set-mirror <url>                设置 UV 包镜像地址
+├── node                                节点管理
+│   ├── list                            列出所有可用节点（含彩色来源标签）
+│   ├── info <name>                     查看节点详细信息
+│   ├── create <name> [选项]            创建自定义节点
+│   ├── delete <type>                   删除自定义节点
+│   ├── export <type> <path> [选项]     导出节点为 ZIP 包
+│   ├── import <path>                   从 ZIP 包导入节点
+│   ├── generate <name> [选项]          AI 生成自定义节点
+│   ├── check-safety <path>             检查 Python 代码安全性
+│   └── repo                            远程节点仓库管理
+│       ├── list                        列出远程仓库可用节点
+│       ├── check-updates               检查官方节点更新
+│       └── install <type> [选项]       从远程仓库安装/更新节点
+├── config                              配置管理
+│   ├── show                            显示配置（敏感字段自动解密脱敏）
+│   ├── get <key>                       获取单条配置值（支持点号嵌套路径）
+│   ├── set <key> <value>               设置配置项（敏感字段加密存储）
+│   ├── unset <key>                     删除配置项
+│   ├── github-login [选项]             GitHub Device Flow 登录
+│   └── github-logout                   清除 GitHub 登录凭证
+├── workflow                            工作流管理
+│   ├── list [选项]                     列出已保存的工作流（支持 --json）
+│   ├── create <name>                   创建新的空工作流
+│   ├── copy <path> <name>              复制工作流
+│   ├── rename <path> <name>            重命名工作流
+│   ├── delete <path>                   删除工作流
+│   ├── validate <file>                 验证工作流格式
+│   ├── describe <file> [选项]          显示工作流详情（支持 --json）
+│   ├── stats                           显示工作流执行统计
+│   ├── add-node <path> <type> [选项]   添加节点（--config key=val, --x, --y）
+│   ├── remove-node <path> <id>         删除节点
+│   ├── update-node <path> <id> <kv...> 更新节点配置
+│   ├── connect <path> <from> <to>      连接两个节点
+│   └── disconnect <path> <from> <to>   断开两个节点
+└── serve [选项]                        启动 FastAPI REST API 服务
 ```
 
 ### 常用示例
@@ -263,6 +278,9 @@ localflow
 ```bash
 # 基本执行
 localflow run workflows/my_workflow/workflow.json
+
+# 按工作流名称执行（自动查找）
+localflow run --name my_workflow
 
 # 带输入数据
 localflow run workflow.json --input '{"key": "value"}' --verbose
@@ -288,9 +306,11 @@ localflow schedule list
 # 更新任务
 localflow schedule update abc12345 --cron "*/30 * * * *" --name "每半小时"
 
-# 启用/禁用
+# 启用/禁用（两种方式）
 localflow schedule update abc12345 --enabled
 localflow schedule update abc12345 --disabled
+localflow schedule pause abc12345       # 暂停（等效于 --disabled）
+localflow schedule resume abc12345      # 恢复（等效于 --enabled）
 
 # 删除任务
 localflow schedule remove abc12345
@@ -335,6 +355,9 @@ localflow env list
 localflow env create my_project --python 3.12
 localflow env remove my_project
 
+# 在环境中安装包
+localflow env install my_project requests pandas
+
 # 查看 UV 状态
 localflow env status
 
@@ -347,6 +370,9 @@ localflow env set-mirror https://pypi.tuna.tsinghua.edu.cn/simple
 # 显示配置（API key 等明文自动脱敏）
 localflow config show
 
+# 获取单条配置
+localflow config get node_timeout_seconds
+
 # 设置普通配置
 localflow config set node_timeout_seconds 300
 
@@ -355,6 +381,9 @@ localflow config set ai_settings '{"api_key":"sk-xxx","model":"gpt-4","base_url"
 
 # 点路径写法
 localflow config set ai_settings.api_key sk-xxx
+
+# 删除配置项
+localflow config unset node_timeout_seconds
 
 # GitHub OAuth 登录（Device Flow）
 localflow config github-login --timeout 600
@@ -368,14 +397,57 @@ localflow config github-logout
 # 列出已保存的工作流
 localflow workflow list
 
+# JSON 格式输出（适合脚本处理）
+localflow workflow list --json
+
+# 创建新工作流
+localflow workflow create my_workflow
+
+# 复制工作流
+localflow workflow copy workflows/my_workflow/workflow.json my_workflow_v2
+
+# 重命名
+localflow workflow rename workflows/my_workflow/workflow.json new_name
+
+# 删除
+localflow workflow delete workflows/my_workflow/workflow.json
+
 # 验证工作流格式
 localflow workflow validate workflows/my_wf/workflow.json
 
 # 查看工作流详情
 localflow workflow describe workflows/my_wf/workflow.json
 
+# JSON 格式输出详情
+localflow workflow describe workflows/my_wf/workflow.json --json
+
 # 查看执行统计
 localflow workflow stats
+```
+
+**编辑工作流节点：**
+```bash
+# 添加变量赋值节点
+localflow workflow add-node workflows/my_wf/workflow.json variable_assign \
+  --config variable_name=x --config value=42 --config value_type=int \
+  --x 100 --y 100
+
+# 添加计算节点
+localflow workflow add-node workflows/my_wf/workflow.json variable_calc \
+  --config expression='x+1' --config output_var=result \
+  --x 350 --y 200
+
+# 连接节点
+localflow workflow connect workflows/my_wf/workflow.json node1 node2
+
+# 更新节点配置
+localflow workflow update-node workflows/my_wf/workflow.json node1 value=99
+
+# 断开连接
+localflow workflow disconnect workflows/my_wf/workflow.json node1 node2
+
+# 删除节点
+localflow workflow remove-node workflows/my_wf/workflow.json node1
 ```
 
 **启动 API 服务：**
