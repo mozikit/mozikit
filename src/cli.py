@@ -551,6 +551,32 @@ def schedule_status():
     console.print(f"[bold]已禁用:[/] {len(tasks) - enabled}")
 
 
+@schedule_app.command("pause")
+def schedule_pause(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+):
+    """暂停定时任务"""
+    mgr = HeadlessScheduler()
+    if mgr.update_task(task_id, enabled=False):
+        console.print(f"[green]✓[/] 任务已暂停: {task_id}")
+    else:
+        console.print(f"[red]错误:[/] 任务不存在: {task_id}")
+        raise typer.Exit(code=1)
+
+
+@schedule_app.command("resume")
+def schedule_resume(
+    task_id: str = typer.Argument(..., help="任务 ID"),
+):
+    """恢复定时任务"""
+    mgr = HeadlessScheduler()
+    if mgr.update_task(task_id, enabled=True):
+        console.print(f"[green]✓[/] 任务已恢复: {task_id}")
+    else:
+        console.print(f"[red]错误:[/] 任务不存在: {task_id}")
+        raise typer.Exit(code=1)
+
+
 @schedule_app.command("daemon")
 def schedule_daemon(
     tick: int = typer.Option(10, "--tick", "-t", help="轮询间隔（秒）"),
@@ -746,6 +772,25 @@ def env_set_mirror(
         console.print(f"[green]镜像已设置:[/] {url}")
     except Exception as e:
         console.print(f"[red]错误:[/] 设置镜像失败: {e}")
+        raise typer.Exit(code=1)
+
+
+@env_app.command("install")
+def env_install(
+    name: str = typer.Argument(..., help="环境名称"),
+    packages: List[str] = typer.Argument(..., help="要安装的包名（可多个）"),
+):
+    """在虚拟环境中安装包"""
+    uv = UVManager()
+    try:
+        for pkg in packages:
+            with Status(f"[bold yellow]正在安装 {pkg}...[/]", console=console):
+                if not uv.install_packages(name, [pkg]):
+                    console.print(f"[red]错误:[/] {pkg} 安装失败")
+                    raise typer.Exit(code=1)
+            console.print(f"[green]✓[/] {pkg} 安装成功")
+    except Exception as e:
+        console.print(f"[red]错误:[/] 安装失败: {e}")
         raise typer.Exit(code=1)
 
 
@@ -1272,6 +1317,51 @@ def config_set(
     console.print(f"[green]配置已更新:[/] {key} = {display_val}")
 
 
+@config_app.command("get")
+def config_get(
+    key: str = typer.Argument(..., help="配置键名（支持点号分隔的嵌套路径）"),
+):
+    """获取单条配置值"""
+    mgr = ConfigManager()
+    conf = mgr.config
+
+    # 敏感键使用 getter 解密
+    if key == "ai_settings":
+        value = mgr.get_ai_settings()
+    elif key == "github_settings":
+        value = mgr.get_github_settings()
+    else:
+        # 支持点号路径
+        keys = key.split(".")
+        target = conf
+        for k in keys:
+            if isinstance(target, dict) and k in target:
+                target = target[k]
+            else:
+                console.print(f"[red]错误:[/] 配置键不存在: {key}")
+                raise typer.Exit(code=1)
+        value = target
+
+    # 脱敏显示
+    display = _redact_sensitive(value) if isinstance(value, dict) else json.dumps(value, ensure_ascii=False)
+    console.print(f"{key} = {display}")
+
+
+@config_app.command("unset")
+def config_unset(
+    key: str = typer.Argument(..., help="要删除的配置键名"),
+):
+    """删除配置项"""
+    mgr = ConfigManager()
+    if key in mgr.config:
+        del mgr.config[key]
+        mgr.save_config_sync()
+        console.print(f"[green]✓[/] 配置已删除: {key}")
+    else:
+        console.print(f"[red]错误:[/] 配置键不存在: {key}")
+        raise typer.Exit(code=1)
+
+
 @config_app.command("github-login")
 def config_github_login(
     timeout: int = typer.Option(300, "--timeout", "-t", help="授权超时秒数（默认 300）"),
@@ -1394,9 +1484,38 @@ def workflow_validate(
 @workflow_app.command("describe")
 def workflow_describe(
     workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="以 JSON 格式输出"),
 ):
     """显示工作流详情"""
     executor = _load_workflow(workflow_path)
+
+    if json_output:
+        nodes_info = [
+            {
+                "node_id": n.node_id,
+                "node_type": n.node_type,
+                "config": getattr(n, 'config', {}),
+            }
+            for n in executor.nodes.values()
+        ]
+        edges_info = [
+            {
+                "from_node": e.from_node,
+                "from_port": e.from_port,
+                "to_node": e.to_node,
+                "to_port": e.to_port,
+            }
+            for e in executor.edges
+        ]
+        result = {
+            "workflow_name": executor.workflow_name,
+            "node_count": len(executor.nodes),
+            "edge_count": len(executor.edges),
+            "nodes": nodes_info,
+            "edges": edges_info,
+        }
+        console.print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
 
     console.print(f"[bold]名称:[/] {executor.workflow_name}")
     console.print(f"[bold]节点数:[/] {len(executor.nodes)}")
