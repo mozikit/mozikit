@@ -3,6 +3,8 @@ LocalFlow CLI
 完整的命令行接口，支持工作流执行、定时调度、环境与节点管理等操作。
 """
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional, List
@@ -26,6 +28,7 @@ from src.core.log_manager import init_logging, get_logger
 from src.core.workflow_executor import WorkflowExecutor
 from src.core.headless_scheduler import HeadlessScheduler
 from src.core.config_manager import ConfigManager
+from src.core.node_base import NodeBase
 from src.core.node_registry import get_registry
 from src.core.uv_manager import UVManager
 from src.core import resolve_workspace
@@ -164,11 +167,36 @@ def _parse_kv_pairs(pairs: Optional[List[str]]) -> dict:
     return result
 
 
+def _generate_node_id(existing_nodes: dict) -> str:
+    """生成不重复的节点 ID"""
+    n = 1
+    while f"node{n}" in existing_nodes:
+        n += 1
+    return f"node{n}"
+
+
+def _extract_node_positions(path_str: str) -> dict:
+    """从工作流文件中提取节点位置映射 {node_id: {x, y}}"""
+    try:
+        with open(path_str, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        return {
+            nd["node_id"]: nd["position"]
+            for nd in raw.get("nodes", [])
+            if "position" in nd
+        }
+    except Exception:
+        return {}
+
+
 # ── run 命令 ───────────────────────────────────────
 
 @app.command()
 def run(
-    workflow_path: str = typer.Argument(..., help="工作流文件路径 (.json)"),
+    workflow_path: Optional[str] = typer.Argument(None, help="工作流文件路径 (.json)"),
+    name: Optional[str] = typer.Option(
+        None, "--name", "-n", help="按工作流名称执行（替代文件路径）"
+    ),
     input_data: Optional[str] = typer.Option(
         None, "--input", help='初始输入数据 (JSON 字符串或 key=value 对)'
     ),
@@ -188,7 +216,26 @@ def run(
     """执行工作流"""
     _init(verbose)
 
-    executor = _load_workflow(workflow_path)
+    # 解析工作流路径：--name 或位置参数
+    if name:
+        from src.core.workflow_scanner import scan_workflows
+        from src.core import resolve_workspace
+
+        wf_list = scan_workflows(str(resolve_workspace()))
+        matches = [wf for wf in wf_list if wf["name"] == name]
+        if not matches:
+            console.print(f"[red]错误:[/] 未找到工作流: {name}")
+            console.print(f"  使用 'workflow list' 查看可用工作流")
+            raise typer.Exit(code=1)
+        resolved_path = matches[0]["path"]
+    elif workflow_path:
+        resolved_path = workflow_path
+    else:
+        console.print("[red]错误:[/] 请指定工作流路径或使用 --name 指定工作流名称")
+        console.print("  用法: localflow run <path> 或 localflow run --name <name>")
+        raise typer.Exit(code=1)
+
+    executor = _load_workflow(resolved_path)
 
     total_nodes = len(executor.nodes)
 
@@ -1291,13 +1338,21 @@ app.add_typer(workflow_app, name="workflow")
 
 
 @workflow_app.command("list")
-def workflow_list():
+def workflow_list(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="以 JSON 格式输出（适合管道/集成）"
+    ),
+):
     """列出已保存的工作流"""
     from src.core.workflow_scanner import scan_workflows
     from src.core import resolve_workspace
     wf_list = scan_workflows(str(resolve_workspace()))
     if not wf_list:
         console.print("没有找到已保存的工作流")
+        return
+
+    if json_output:
+        console.print(json.dumps(wf_list, ensure_ascii=False, indent=2))
         return
 
     table = Table(title="已保存的工作流", box=box.ROUNDED)
@@ -1352,7 +1407,7 @@ def workflow_describe(
         table.add_column("ID", style="cyan")
         table.add_column("类型", style="yellow")
         table.add_column("名称/标签")
-        for n in executor.nodes:
+        for n in executor.nodes.values():
             label = getattr(n, 'label', None) or n.node_id
             table.add_row(n.node_id, n.node_type, label)
         console.print(table)
@@ -1392,6 +1447,284 @@ def workflow_stats():
             console.print(f"  {status_icon} {name} ({dur}ms)")
     else:
         console.print("\n[dim]暂无执行记录[/]")
+
+
+# ── workflow create ─────────────────────────────────
+
+@workflow_app.command("create")
+def workflow_create(
+    name: str = typer.Argument(..., help="工作流名称"),
+):
+    """创建新的空工作流"""
+    from src.core import resolve_workspace
+    ws = resolve_workspace()
+    wf_dir = ws / name
+    wf_path = wf_dir / "workflow.json"
+
+    if wf_path.exists():
+        console.print(f"[red]错误:[/] 工作流已存在: {wf_path}")
+        raise typer.Exit(code=1)
+
+    executor = WorkflowExecutor(name)
+    os.makedirs(str(wf_dir), exist_ok=True)
+    executor.save_workflow(str(wf_path))
+    console.print(f"[green]✓[/] 工作流已创建: [bold]{name}[/]")
+    console.print(f"  路径: {wf_path}")
+
+
+# ── workflow delete ─────────────────────────────────
+
+@workflow_app.command("delete")
+def workflow_delete(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+):
+    """删除工作流"""
+    path = Path(workflow_path)
+    if not path.exists():
+        console.print(f"[red]错误:[/] 工作流文件不存在: {path}")
+        raise typer.Exit(code=1)
+
+    wf_dir = path.parent
+    name = wf_dir.name
+    shutil.rmtree(str(wf_dir))
+    console.print(f"[green]✓[/] 工作流已删除: [bold]{name}[/]")
+
+
+# ── workflow rename ─────────────────────────────────
+
+@workflow_app.command("rename")
+def workflow_rename(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    new_name: str = typer.Argument(..., help="新工作流名称"),
+):
+    """重命名工作流"""
+    executor = _load_workflow(workflow_path)
+
+    from src.core import resolve_workspace
+    ws = resolve_workspace()
+    new_dir = ws / new_name
+    new_path = new_dir / "workflow.json"
+
+    if new_path.exists():
+        console.print(f"[red]错误:[/] 目标名称已存在: {new_path}")
+        raise typer.Exit(code=1)
+
+    old_dir = Path(workflow_path).parent
+    old_name = executor.workflow_name
+
+    executor.workflow_name = new_name
+    os.makedirs(str(new_dir), exist_ok=True)
+    executor.save_workflow(str(new_path))
+    shutil.rmtree(str(old_dir))
+    console.print(f"[green]✓[/] 工作流已重命名: [bold]{old_name}[/] → [bold]{new_name}[/]")
+
+
+# ── workflow copy ───────────────────────────────────
+
+@workflow_app.command("copy")
+def workflow_copy(
+    workflow_path: str = typer.Argument(..., help="源工作流文件路径"),
+    new_name: str = typer.Argument(..., help="新工作流名称"),
+):
+    """复制工作流"""
+    executor = _load_workflow(workflow_path)
+
+    from src.core import resolve_workspace
+    ws = resolve_workspace()
+    new_dir = ws / new_name
+    new_path = new_dir / "workflow.json"
+
+    if new_path.exists():
+        console.print(f"[red]错误:[/] 目标名称已存在: {new_path}")
+        raise typer.Exit(code=1)
+
+    old_name = executor.workflow_name
+    executor.workflow_name = new_name
+    os.makedirs(str(new_dir), exist_ok=True)
+    executor.save_workflow(str(new_path))
+    console.print(f"[green]✓[/] 工作流已复制: [bold]{old_name}[/] → [bold]{new_name}[/]")
+    console.print(f"  路径: {new_path}")
+
+
+# ── workflow add-node ───────────────────────────────
+
+@workflow_app.command("add-node")
+def workflow_add_node(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    node_type: str = typer.Argument(..., help="节点类型（如 variable_assign）"),
+    config: Optional[List[str]] = typer.Option(None, "--config", "-c", help="配置项 key=value 对（可重复）"),
+    x: float = typer.Option(100.0, "--x", help="画布 X 坐标"),
+    y: float = typer.Option(100.0, "--y", help="画布 Y 坐标"),
+):
+    """在工作流中添加一个节点"""
+    executor = _load_workflow(workflow_path)
+    registry = get_registry()
+
+    node_def = registry.get_node(node_type)
+    if not node_def:
+        console.print(f"[yellow]警告:[/] 节点类型 '{node_type}' 未在注册表中找到，将创建空壳节点")
+        console.print(f"  请确保该类型存在（使用 'node repo install {node_type}' 安装）")
+        console.print(f"  或通过 'node list' 查看已注册的类型")
+
+    node_id = _generate_node_id(executor.nodes)
+
+    default_config = registry.build_default_config(node_type)
+    custom_config = _parse_kv_pairs(config)
+    default_config.update(custom_config)
+
+    node = NodeBase.from_dict({
+        "node_id": node_id,
+        "node_type": node_type,
+        "config": default_config,
+    })
+    executor.add_node(node)
+
+    positions = _extract_node_positions(workflow_path)
+    positions[node_id] = {"x": x, "y": y}
+    executor.save_workflow(workflow_path, node_positions=positions)
+
+    console.print(f"[green]✓[/] 节点已添加: [bold]{node_id}[/] ({node_type})")
+    console.print(f"  配置: {json.dumps(default_config, ensure_ascii=False)}")
+    console.print(f"  位置: ({x}, {y})")
+
+
+# ── workflow remove-node ────────────────────────────
+
+@workflow_app.command("remove-node")
+def workflow_remove_node(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    node_id: str = typer.Argument(..., help="要删除的节点 ID"),
+):
+    """从工作流中删除节点及所有关联连接"""
+    executor = _load_workflow(workflow_path)
+
+    if node_id not in executor.nodes:
+        console.print(f"[red]错误:[/] 节点不存在: {node_id}")
+        console.print(f"  现有节点: {', '.join(executor.nodes.keys())}")
+        raise typer.Exit(code=1)
+
+    # 删除节点
+    del executor.nodes[node_id]
+
+    # 清理涉及该节点的边
+    executor.edges = [
+        e for e in executor.edges
+        if e.from_node != node_id and e.to_node != node_id
+    ]
+
+    # 清理其他节点的 inputs/outputs 引用
+    for n in executor.nodes.values():
+        n.inputs = [i for i in n.inputs if i != node_id]
+        n.outputs = [o for o in n.outputs if o != node_id]
+
+    positions = _extract_node_positions(workflow_path)
+    positions.pop(node_id, None)
+    executor.save_workflow(workflow_path, node_positions=positions)
+
+    console.print(f"[green]✓[/] 节点已删除: [bold]{node_id}[/]")
+
+
+# ── workflow update-node ────────────────────────────
+
+@workflow_app.command("update-node")
+def workflow_update_node(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    node_id: str = typer.Argument(..., help="节点 ID"),
+    config: List[str] = typer.Argument(..., help="配置项 key=value 对（可多个）"),
+):
+    """更新工作流节点的配置参数"""
+    executor = _load_workflow(workflow_path)
+
+    if node_id not in executor.nodes:
+        console.print(f"[red]错误:[/] 节点不存在: {node_id}")
+        console.print(f"  现有节点: {', '.join(executor.nodes.keys())}")
+        raise typer.Exit(code=1)
+
+    updates = _parse_kv_pairs(config)
+    if not updates:
+        console.print("[red]错误:[/] 未提供任何配置项")
+        raise typer.Exit(code=1)
+
+    executor.nodes[node_id].config.update(updates)
+    positions = _extract_node_positions(workflow_path)
+    executor.save_workflow(workflow_path, node_positions=positions)
+
+    console.print(f"[green]✓[/] 节点 [bold]{node_id}[/] 配置已更新")
+    for k, v in updates.items():
+        console.print(f"  {k} = {v}")
+
+
+# ── workflow connect ────────────────────────────────
+
+@workflow_app.command("connect")
+def workflow_connect(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    from_id: str = typer.Argument(..., help="上游节点 ID"),
+    to_id: str = typer.Argument(..., help="下游节点 ID"),
+    from_port: str = typer.Option("output", "--from-port", help="上游端口名"),
+    to_port: str = typer.Option("input", "--to-port", help="下游端口名"),
+):
+    """连接两个节点"""
+    executor = _load_workflow(workflow_path)
+
+    if from_id not in executor.nodes:
+        console.print(f"[red]错误:[/] 上游节点不存在: {from_id}")
+        raise typer.Exit(code=1)
+    if to_id not in executor.nodes:
+        console.print(f"[red]错误:[/] 下游节点不存在: {to_id}")
+        raise typer.Exit(code=1)
+
+    # 检查重复连接
+    for edge in executor.edges:
+        if edge.from_node == from_id and edge.from_port == from_port \
+           and edge.to_node == to_id and edge.to_port == to_port:
+            console.print(f"[red]错误:[/] 连接已存在: {from_id}:{from_port} → {to_id}:{to_port}")
+            raise typer.Exit(code=1)
+
+    executor.add_edge(from_id, from_port, to_id, to_port)
+    positions = _extract_node_positions(workflow_path)
+    executor.save_workflow(workflow_path, node_positions=positions)
+
+    console.print(f"[green]✓[/] 已连接: [bold]{from_id}[/]:{from_port} → [bold]{to_id}[/]:{to_port}")
+
+
+# ── workflow disconnect ─────────────────────────────
+
+@workflow_app.command("disconnect")
+def workflow_disconnect(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    from_id: str = typer.Argument(..., help="上游节点 ID"),
+    to_id: str = typer.Argument(..., help="下游节点 ID"),
+    from_port: str = typer.Option("output", "--from-port", help="上游端口名"),
+    to_port: str = typer.Option("input", "--to-port", help="下游端口名"),
+):
+    """断开两个节点的连接"""
+    executor = _load_workflow(workflow_path)
+
+    # 查找匹配的边
+    edge_to_remove = None
+    for edge in executor.edges:
+        if edge.from_node == from_id and edge.from_port == from_port \
+           and edge.to_node == to_id and edge.to_port == to_port:
+            edge_to_remove = edge
+            break
+
+    if not edge_to_remove:
+        console.print(f"[red]错误:[/] 未找到连接: {from_id}:{from_port} → {to_id}:{to_port}")
+        raise typer.Exit(code=1)
+
+    executor.edges.remove(edge_to_remove)
+
+    # 更新节点的 inputs/outputs
+    if to_id in executor.nodes and from_id in executor.nodes[to_id].inputs:
+        executor.nodes[to_id].inputs.remove(from_id)
+    if from_id in executor.nodes and to_id in executor.nodes[from_id].outputs:
+        executor.nodes[from_id].outputs.remove(to_id)
+
+    positions = _extract_node_positions(workflow_path)
+    executor.save_workflow(workflow_path, node_positions=positions)
+
+    console.print(f"[green]✓[/] 已断开: [bold]{from_id}[/]:{from_port} → [bold]{to_id}[/]:{to_port}")
 
 
 # ── serve 命令 ─────────────────────────────────────
@@ -1516,6 +1849,20 @@ def serve(
         uvicorn.run(api, host=host, port=port, log_level="warning")
     except KeyboardInterrupt:
         console.print("\n[yellow]服务已停止[/]")
+
+
+# ── help 命令 ──────────────────────────────────────
+
+@app.command()
+def help():
+    """显示帮助信息"""
+    from typer.main import get_command
+    import click
+
+    click_group = get_command(app)
+    ctx = click.Context(click_group, info_name="localflow")
+    console.print(click_group.get_help(ctx))
+    raise typer.Exit()
 
 
 # ── 直接执行入口 ──────────────────────────────────

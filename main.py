@@ -18,7 +18,7 @@ def _prepare_runtime_workdir() -> None:
 
 
 # 已知 CLI 子命令（与 src/cli.py 保持一致）
-_CLI_COMMANDS = {"run", "schedule", "env", "node", "config", "workflow", "serve"}
+_CLI_COMMANDS = {"run", "schedule", "env", "node", "config", "workflow", "serve", "help"}
 
 
 def _is_cli_mode() -> bool:

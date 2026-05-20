@@ -445,7 +445,7 @@ class TestCLIWorkflowScenario(unittest.TestCase):
 
         # 1. validate
         mock_executor.workflow_name = "data_pipeline"
-        mock_executor.nodes = [MagicMock(), MagicMock(), MagicMock()]
+        mock_executor.nodes = {"n1": MagicMock(), "n2": MagicMock(), "n3": MagicMock()}
         mock_executor.edges = [MagicMock(), MagicMock()]
         mock_executor._topological_sort.return_value = ["node_a", "node_b", "node_c"]
 
@@ -461,7 +461,7 @@ class TestCLIWorkflowScenario(unittest.TestCase):
         mock_node.label = "Connect DB"
 
         mock_executor.workflow_name = "data_pipeline"
-        mock_executor.nodes = [mock_node]
+        mock_executor.nodes = {"node_a": mock_node}
         mock_executor.edges = [Edge("node_a", "output", "node_b", "input")]
 
         r2 = self.runner.invoke(app, ["workflow", "describe", "/fake/wf.json"])
@@ -482,6 +482,80 @@ class TestCLIWorkflowScenario(unittest.TestCase):
             r = self.runner.invoke(app, ["workflow", "list"])
             self.assertEqual(r.exit_code, 0)
             self.assertIn("scenario_test", r.output)
+
+
+class TestCLIWorkflowEditScenario(unittest.TestCase):
+    """workflow 编辑命令端到端场景"""
+
+    def setUp(self):
+        self.runner = CliRunner()
+
+    def test_workflow_create_then_list_json(self):
+        """场景：创建工作流 → list --json 可解析"""
+        with self.runner.isolated_filesystem():
+            # 创建
+            r1 = self.runner.invoke(app, ["workflow", "create", "edit_test"])
+            self.assertEqual(r1.exit_code, 0)
+            self.assertIn("已创建", r1.output)
+            self.assertTrue(Path("workflows/edit_test/workflow.json").exists())
+
+            # list --json
+            r2 = self.runner.invoke(app, ["workflow", "list", "--json"])
+            self.assertEqual(r2.exit_code, 0)
+            data = json.loads(r2.output)
+            self.assertIsInstance(data, list)
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["name"], "edit_test")
+
+    def test_workflow_copy_workflow(self):
+        """场景：创建工作流 → 复制 → 两个独立存在"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "original_wf"])
+
+            r_copy = self.runner.invoke(app, [
+                "workflow", "copy",
+                "workflows/original_wf/workflow.json",
+                "copied_wf",
+            ])
+            self.assertEqual(r_copy.exit_code, 0)
+            self.assertIn("已复制", r_copy.output)
+            # 原始和副本都应存在
+            self.assertTrue(Path("workflows/original_wf/workflow.json").exists())
+            self.assertTrue(Path("workflows/copied_wf/workflow.json").exists())
+
+    def test_workflow_copy_duplicate_name(self):
+        """复制到已存在的名称应报错"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "src"])
+            self.runner.invoke(app, ["workflow", "create", "dst"])
+            r = self.runner.invoke(app, [
+                "workflow", "copy",
+                "workflows/src/workflow.json",
+                "dst",
+            ])
+            self.assertNotEqual(r.exit_code, 0)
+            self.assertIn("已存在", r.output)
+
+    def test_workflow_run_by_name(self):
+        """场景：创建工作流 → run --name 执行（空工作流应成功执行）"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "run_by_name"])
+
+            # run --name 应找到工作流并加载执行（空工作流执行也成功）
+            r = self.runner.invoke(app, ["run", "--name", "run_by_name"])
+            self.assertEqual(r.exit_code, 0)
+
+    def test_workflow_run_by_name_not_found(self):
+        """run --name 不存在的名称应报错"""
+        r = self.runner.invoke(app, ["run", "--name", "ghost_wf"])
+        self.assertNotEqual(r.exit_code, 0)
+        self.assertIn("未找到", r.output)
+
+    def test_workflow_run_by_name_conflict_with_path(self):
+        """不传 path 也不传 --name 应报错"""
+        r = self.runner.invoke(app, ["run"])
+        self.assertNotEqual(r.exit_code, 0)
+        self.assertIn("请指定", r.output)
 
 
 if __name__ == "__main__":

@@ -61,10 +61,20 @@ class TestCLIAppStructure(unittest.TestCase):
         for cmd in ["show", "set"]:
             self.assertIn(cmd, result.output)
 
+    def test_help_subcommand_shows_top_level_help(self):
+        """help 子命令应显示与 --help 相同的内容"""
+        result_help = self.runner.invoke(app, ["help"])
+        self.assertEqual(result_help.exit_code, 0)
+        self.assertIn("Usage:", result_help.output)
+        self.assertIn("Commands", result_help.output)  # rich table header
+
     def test_workflow_help_shows_commands(self):
         result = self.runner.invoke(app, ["workflow", "--help"])
         self.assertEqual(result.exit_code, 0)
-        for cmd in ["list", "validate", "describe"]:
+        for cmd in ["list", "validate", "describe", "stats",
+                     "create", "delete", "rename",
+                     "add-node", "remove-node", "update-node",
+                     "connect", "disconnect"]:
             self.assertIn(cmd, result.output)
 
 
@@ -594,7 +604,7 @@ class TestCLIWorkflowCommand(unittest.TestCase):
 
         mock_executor = MagicMock()
         mock_executor.workflow_name = "detailed_wf"
-        mock_executor.nodes = [mock_node, mock_node2]
+        mock_executor.nodes = {"n1": mock_node, "n2": mock_node2}
         mock_executor.edges = [
             Edge("n1", "output", "n2", "input"),
         ]

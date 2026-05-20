@@ -1472,3 +1472,301 @@ class TestCLIConfigSetSensitiveCommand(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===================================================================
+# TestCLIWorkflowEditCommands — 工作流编辑命令
+# ===================================================================
+
+class TestCLIWorkflowEditCommands(unittest.TestCase):
+    """workflow create/delete/rename/add-node/remove-node/update-node/connect/disconnect"""
+
+    def setUp(self):
+        self.runner = CliRunner()
+
+    # ── create ─────────────────────────────────────
+
+    def test_workflow_create_success(self):
+        """创建空工作流应成功"""
+        with self.runner.isolated_filesystem():
+            result = self.runner.invoke(app, ["workflow", "create", "test_wf"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("已创建", result.output)
+            self.assertTrue(Path("workflows/test_wf/workflow.json").exists())
+
+    def test_workflow_create_duplicate(self):
+        """重复创建工作流应报错"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "dup_wf"])
+            result = self.runner.invoke(app, ["workflow", "create", "dup_wf"])
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("已存在", result.output)
+
+    # ── delete ─────────────────────────────────────
+
+    def test_workflow_delete_success(self):
+        """删除工作流应成功"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "del_wf"])
+            wf_path = "workflows/del_wf/workflow.json"
+            self.assertTrue(Path(wf_path).exists())
+
+            result = self.runner.invoke(app, ["workflow", "delete", wf_path])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("已删除", result.output)
+            self.assertFalse(Path("workflows/del_wf").exists())
+
+    def test_workflow_delete_nonexistent(self):
+        """删除不存在的工作流应报错"""
+        result = self.runner.invoke(app, ["workflow", "delete", "/nonexistent/wf.json"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("不存在", result.output)
+
+    # ── rename ─────────────────────────────────────
+
+    def test_workflow_rename_success(self):
+        """重命名工作流应成功"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "old_name"])
+            old_path = "workflows/old_name/workflow.json"
+            self.assertTrue(Path(old_path).exists())
+
+            result = self.runner.invoke(app, ["workflow", "rename", old_path, "new_name"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("已重命名", result.output)
+            self.assertFalse(Path("workflows/old_name").exists())
+            self.assertTrue(Path("workflows/new_name/workflow.json").exists())
+
+    def test_workflow_rename_target_exists(self):
+        """重命名到已存在的名称应报错"""
+        with self.runner.isolated_filesystem():
+            self.runner.invoke(app, ["workflow", "create", "src"])
+            self.runner.invoke(app, ["workflow", "create", "dst"])
+            result = self.runner.invoke(app, ["workflow", "rename",
+                                               "workflows/src/workflow.json", "dst"])
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("已存在", result.output)
+
+    # ── add-node ───────────────────────────────────
+
+    @patch("src.cli._load_workflow")
+    @patch("src.cli._extract_node_positions")
+    def test_workflow_add_node_defaults(self, mock_pos, mock_load):
+        """add-node 应生成节点 ID 并使用默认配置"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {}
+        mock_executor.workflow_name = "test_wf"
+        mock_load.return_value = mock_executor
+        mock_pos.return_value = {}
+
+        result = self.runner.invoke(app, [
+            "workflow", "add-node", "/fake/wf.json", "variable_assign",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("node1", result.output)
+        self.assertIn("variable_assign", result.output)
+        # 应调用 add_node
+        mock_executor.add_node.assert_called_once()
+        # 应调用 save_workflow
+        mock_executor.save_workflow.assert_called_once()
+
+    @patch("src.cli._load_workflow")
+    @patch("src.cli._extract_node_positions")
+    def test_workflow_add_node_with_config(self, mock_pos, mock_load):
+        """add-node 应传递 --config 参数"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {}
+        mock_executor.workflow_name = "test_wf"
+        mock_load.return_value = mock_executor
+        mock_pos.return_value = {}
+
+        result = self.runner.invoke(app, [
+            "workflow", "add-node", "/fake/wf.json", "variable_assign",
+            "--config", "variable_name=x",
+            "--config", "value=42",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        # 验证传递给 add_node 的 node 包含正确的 config
+        call_args = mock_executor.add_node.call_args
+        added_node = call_args[0][0]
+        self.assertEqual(added_node.config.get("variable_name"), "x")
+        self.assertEqual(added_node.config.get("value"), "42")
+
+    @patch("src.cli._load_workflow")
+    def test_workflow_add_node_generates_unique_id(self, mock_load):
+        """add-node 应生成不重复的 ID"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"node1": MagicMock()}
+        mock_executor.workflow_name = "test_wf"
+        mock_load.return_value = mock_executor
+
+        with patch("src.cli._extract_node_positions", return_value={}):
+            result = self.runner.invoke(app, [
+                "workflow", "add-node", "/fake/wf.json", "variable_assign",
+            ])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("node2", result.output)
+
+    # ── remove-node ────────────────────────────────
+
+    @patch("src.cli._load_workflow")
+    @patch("src.cli._extract_node_positions")
+    def test_workflow_remove_node_success(self, mock_pos, mock_load):
+        """remove-node 应删除节点并清理关联"""
+        mock_node = MagicMock()
+        mock_node.node_id = "n1"
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"n1": mock_node, "n2": MagicMock()}
+        mock_executor.edges = []
+        mock_executor.workflow_name = "test_wf"
+        mock_load.return_value = mock_executor
+        mock_pos.return_value = {}
+
+        result = self.runner.invoke(app, [
+            "workflow", "remove-node", "/fake/wf.json", "n1",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("已删除", result.output)
+        # verify node was removed from dict
+        self.assertNotIn("n1", mock_executor.nodes)
+
+    @patch("src.cli._load_workflow")
+    def test_workflow_remove_node_nonexistent(self, mock_load):
+        """remove-node 对不存在的节点应报错"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"n1": MagicMock()}
+        mock_load.return_value = mock_executor
+
+        result = self.runner.invoke(app, [
+            "workflow", "remove-node", "/fake/wf.json", "ghost",
+        ])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("不存在", result.output)
+
+    # ── update-node ────────────────────────────────
+
+    @patch("src.cli._load_workflow")
+    @patch("src.cli._extract_node_positions")
+    def test_workflow_update_node_success(self, mock_pos, mock_load):
+        """update-node 应更新节点配置"""
+        mock_node = MagicMock()
+        mock_node.config = {}
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"n1": mock_node}
+        mock_executor.workflow_name = "test_wf"
+        mock_load.return_value = mock_executor
+        mock_pos.return_value = {}
+
+        result = self.runner.invoke(app, [
+            "workflow", "update-node", "/fake/wf.json", "n1",
+            "key1=val1", "key2=val2",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("已更新", result.output)
+        self.assertEqual(mock_node.config.get("key1"), "val1")
+        self.assertEqual(mock_node.config.get("key2"), "val2")
+
+    @patch("src.cli._load_workflow")
+    def test_workflow_update_node_no_config(self, mock_load):
+        """update-node 无配置项时应报错"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"n1": MagicMock()}
+        mock_load.return_value = mock_executor
+
+        # 不传 config 参数（空列表）
+        result = self.runner.invoke(app, [
+            "workflow", "update-node", "/fake/wf.json", "n1",
+        ])
+        self.assertNotEqual(result.exit_code, 0)
+
+    # ── connect ────────────────────────────────────
+
+    @patch("src.cli._load_workflow")
+    @patch("src.cli._extract_node_positions")
+    def test_workflow_connect_success(self, mock_pos, mock_load):
+        """connect 应连接两个节点"""
+        mock_from = MagicMock()
+        mock_to = MagicMock()
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"from_node": mock_from, "to_node": mock_to}
+        mock_executor.edges = []
+        mock_executor.workflow_name = "test_wf"
+        mock_load.return_value = mock_executor
+        mock_pos.return_value = {}
+
+        result = self.runner.invoke(app, [
+            "workflow", "connect", "/fake/wf.json", "from_node", "to_node",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("已连接", result.output)
+        mock_executor.add_edge.assert_called_once_with(
+            "from_node", "output", "to_node", "input"
+        )
+
+    @patch("src.cli._load_workflow")
+    def test_workflow_connect_nonexistent_node(self, mock_load):
+        """connect 连接不存在的节点应报错"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"a": MagicMock()}
+        mock_load.return_value = mock_executor
+
+        result = self.runner.invoke(app, [
+            "workflow", "connect", "/fake/wf.json", "a", "ghost",
+        ])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("不存在", result.output)
+
+    @patch("src.cli._load_workflow")
+    def test_workflow_connect_duplicate(self, mock_load):
+        """connect 重复连接应报错"""
+        from collections import namedtuple
+        Edge = namedtuple("Edge", ["from_node", "from_port", "to_node", "to_port"])
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"a": MagicMock(), "b": MagicMock()}
+        mock_executor.edges = [Edge("a", "output", "b", "input")]
+        mock_load.return_value = mock_executor
+
+        result = self.runner.invoke(app, [
+            "workflow", "connect", "/fake/wf.json", "a", "b",
+        ])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("已存在", result.output)
+
+    # ── disconnect ─────────────────────────────────
+
+    @patch("src.cli._load_workflow")
+    @patch("src.cli._extract_node_positions")
+    def test_workflow_disconnect_success(self, mock_pos, mock_load):
+        """disconnect 应断开连接"""
+        from collections import namedtuple
+        Edge = namedtuple("Edge", ["from_node", "from_port", "to_node", "to_port"])
+        mock_from = MagicMock()
+        mock_from.outputs = ["to_node"]
+        mock_to = MagicMock()
+        mock_to.inputs = ["from_node"]
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"from_node": mock_from, "to_node": mock_to}
+        mock_executor.edges = [Edge("from_node", "output", "to_node", "input")]
+        mock_load.return_value = mock_executor
+        mock_pos.return_value = {}
+
+        result = self.runner.invoke(app, [
+            "workflow", "disconnect", "/fake/wf.json", "from_node", "to_node",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("已断开", result.output)
+        self.assertEqual(len(mock_executor.edges), 0)
+
+    @patch("src.cli._load_workflow")
+    def test_workflow_disconnect_nonexistent(self, mock_load):
+        """disconnect 断开不存在的连接应报错"""
+        mock_executor = MagicMock()
+        mock_executor.nodes = {"a": MagicMock(), "b": MagicMock()}
+        mock_executor.edges = []
+        mock_load.return_value = mock_executor
+
+        result = self.runner.invoke(app, [
+            "workflow", "disconnect", "/fake/wf.json", "a", "b",
+        ])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("未找到", result.output)
