@@ -1846,6 +1846,76 @@ def workflow_disconnect(
     console.print(f"[green]✓[/] 已断开: [bold]{from_id}[/]:{from_port} → [bold]{to_id}[/]:{to_port}")
 
 
+# ── workflow export ────────────────────────────────
+
+@workflow_app.command("export")
+def workflow_export(
+    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="输出文件路径（默认输出到终端）"),
+):
+    """导出工作流为 JSON（完整结构，包含节点、连接、配置）"""
+    executor = _load_workflow(workflow_path)
+    data = executor.build_workflow_data()
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    if output:
+        Path(output).write_text(json_str, encoding="utf-8")
+        console.print(f"[green]✓[/] 工作流已导出: {output}")
+    else:
+        console.print(json_str)
+
+
+# ── workflow import ────────────────────────────────
+
+@workflow_app.command("import")
+def workflow_import(
+    source: str = typer.Argument(..., help="JSON 文件路径"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="工作流名称（覆盖 JSON 内的名称）"),
+):
+    """从 JSON 文件导入工作流
+
+    支持标准工作流 JSON 格式，也可直接导入 export 导出的文件。
+    使用 --name 可在导入时重命名工作流。
+    """
+    from src.core import resolve_workspace
+
+    path = Path(source)
+    if not path.exists():
+        console.print(f"[red]错误:[/] 文件不存在: {path}")
+        raise typer.Exit(code=1)
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]错误:[/] JSON 解析失败: {e}")
+        raise typer.Exit(code=1)
+
+    workflow_name = name or data.get("workflow_name")
+    if not workflow_name:
+        console.print("[red]错误:[/] 无法确定工作流名称，请使用 --name 指定")
+        raise typer.Exit(code=1)
+
+    ws = resolve_workspace()
+    wf_dir = ws / workflow_name
+    wf_path = wf_dir / "workflow.json"
+
+    if wf_path.exists():
+        console.print(f"[red]错误:[/] 工作流已存在: {wf_path}")
+        console.print("  [dim]如需覆盖，请先执行 workflow delete 删除[/]")
+        raise typer.Exit(code=1)
+
+    # 通过 load_workflow 验证结构完整性，再保存到目标位置
+    executor = WorkflowExecutor.load_workflow(str(path))
+    executor.workflow_name = workflow_name
+
+    os.makedirs(str(wf_dir), exist_ok=True)
+    executor.save_workflow(str(wf_path))
+
+    console.print(f"[green]✓[/] 工作流已导入: [bold]{workflow_name}[/]")
+    console.print(f"  路径: {wf_path}")
+    console.print(f"  节点: {len(executor.nodes)}, 连接: {len(executor.edges)}")
+
+
 # ── serve 命令 ─────────────────────────────────────
 
 @app.command()
