@@ -454,6 +454,45 @@ class WorkflowExecutor:
         cleaned = "\n".join(part for part in [before.strip(), after.strip()] if part)
         return cleaned.strip()
 
+    def _resolve_creds_in_input(
+        self, node_id: str, input_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """解析节点配置中的 {{credential.xxx}} 占位符，将解析后的值注入 input_data
+
+        凭证值通过 stdin（管道）传递，不写入磁盘上的脚本文件。
+        """
+        node = self.nodes.get(node_id)
+        if not node or not isinstance(node.config, dict):
+            return input_data
+
+        import re
+        from src.core.credential_store import retrieve_credential
+        from src.core.config_manager import ConfigManager
+
+        pattern = re.compile(r"\{\{credential\.([^}]+)\}\}")
+        cm = ConfigManager()
+        resolved = {}
+
+        for key, value in node.config.items():
+            if not isinstance(value, str) or "{{credential." not in value:
+                continue
+
+            def _replacer(m):
+                cred_key = m.group(1)
+                if cred_key == "github_token":
+                    return cm.get_github_token() or m.group(0)
+                elif cred_key == "ai_api_key":
+                    return cm.get_ai_settings().get("api_key", "") or m.group(0)
+                else:
+                    return retrieve_credential(cred_key) or m.group(0)
+
+            resolved[key] = pattern.sub(_replacer, value)
+
+        # 注入 input_data，节点代码优先读取 input_data（如 api_request 的 headers/url/body）
+        result = dict(input_data or {})
+        result.update(resolved)
+        return result
+
     def _execute_node_with_details(
         self,
         node_id: str,
@@ -472,6 +511,9 @@ class WorkflowExecutor:
             raise LocalFlowError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_id}")
 
         node = self.nodes[node_id]
+
+        # 解析 credentials，通过 stdin 传递（不写入脚本文件）
+        input_data = self._resolve_creds_in_input(node_id, input_data or {})
         workflow_dir = self.uv_manager.get_workflow_dir(self.workflow_name)
         scripts_dir = workflow_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)

@@ -146,6 +146,42 @@ class CustomNode(NodeBase):
         """
         return {**input_data}
 
+    def _resolve_credential_placeholders(self, raw_config: dict) -> dict:
+        """解析配置中的 {{credential.xxx}} 占位符
+
+        在脚本生成阶段（主进程）将凭证占位符替换为实际值，
+        这样生成的脚本包含的是明文凭证，可直接使用。
+        """
+        import re
+        from src.core.credential_store import retrieve_credential
+        from src.core.config_manager import ConfigManager
+
+        config = dict(raw_config)
+        pattern = re.compile(r"\{\{credential\.([^}]+)\}\}")
+
+        cm = ConfigManager()
+
+        for key, value in config.items():
+            if not isinstance(value, str):
+                continue
+            if "{{credential." not in value:
+                continue
+
+            def _replacer(m):
+                cred_key = m.group(1)
+                # 优先从配置管理器获取
+                if cred_key == "github_token":
+                    resolved = cm.get_github_token()
+                elif cred_key == "ai_api_key":
+                    resolved = cm.get_ai_settings().get("api_key", "")
+                else:
+                    resolved = retrieve_credential(cred_key)
+                return resolved or m.group(0)
+
+            config[key] = pattern.sub(_replacer, value)
+
+        return config
+
     def _get_script_template(self) -> str:
         """获取脚本模板（使用 BootstrapHook 或直接使用源代码）"""
         if not self.source_code:
@@ -174,7 +210,7 @@ class CustomNode(NodeBase):
 import json
 import sys
 
-# 节点配置
+# 节点配置 — {{credential.xxx}} 占位符由执行引擎通过 stdin 传递解析后的值
 NODE_CONFIG = {repr(self.config)}
 
 def report_progress(percent, message=""):

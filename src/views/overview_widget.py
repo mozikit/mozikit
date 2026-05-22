@@ -667,10 +667,12 @@ class OverviewWidget(QWidget):
         workflows_tab = self._create_workflows_tab()
         scheduled_tab = self._create_scheduled_tab()
         history_tab = self._create_history_tab()
+        credentials_tab = self._create_credentials_tab()
 
         tab_widget.addTab(workflows_tab, "📁 工作流")
         tab_widget.addTab(scheduled_tab, "⏰ 定时任务")
         tab_widget.addTab(history_tab, "📜 运行历史")
+        tab_widget.addTab(credentials_tab, "🔑 凭证管理")
 
         main_layout.addWidget(tab_widget)
 
@@ -1164,6 +1166,284 @@ class OverviewWidget(QWidget):
         layout.addWidget(self.history_table)
 
         return tab
+
+    def _create_credentials_tab(self):
+        """创建凭证管理标签页"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+
+        # ── GitHub 凭证组 ──
+        github_group = QGroupBox("GitHub 令牌")
+        github_layout = QFormLayout()
+        github_layout.setSpacing(10)
+
+        gh_status_widget = QWidget()
+        gh_status_layout = QHBoxLayout(gh_status_widget)
+        gh_status_layout.setContentsMargins(0, 0, 0, 0)
+        self.cred_gh_status_label = QLabel("未连接")
+        self.cred_gh_status_label.setStyleSheet(
+            f"color: {ThemeManager.COLORS['text_secondary']};"
+        )
+        gh_status_layout.addWidget(self.cred_gh_status_label)
+        gh_status_layout.addStretch()
+        github_layout.addRow("状态:", gh_status_widget)
+
+        gh_info = QLabel(
+            "在此粘贴 Personal Access Token (PAT) 以替代 OAuth 登录。\n"
+            "生成位置: GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens\n"
+            "需要权限: Contents (Read), Metadata (Read)"
+        )
+        gh_info.setWordWrap(True)
+        gh_info.setStyleSheet(
+            f"color: {ThemeManager.COLORS['text_secondary']}; font-size: 12px;"
+        )
+        github_layout.addRow(gh_info)
+
+        self.cred_gh_token_input = QLineEdit()
+        self.cred_gh_token_input.setPlaceholderText("粘贴 GitHub Personal Access Token...")
+        self.cred_gh_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cred_gh_token_input.setStyleSheet(ThemeManager.get_input_style())
+        github_layout.addRow("Token:", self.cred_gh_token_input)
+
+        gh_btn_layout = QHBoxLayout()
+        self.cred_gh_save_btn = QPushButton("保存 Token")
+        self.cred_gh_save_btn.setStyleSheet(ThemeManager.get_button_style("primary"))
+        self.cred_gh_save_btn.clicked.connect(self._on_save_github_token)
+        gh_btn_layout.addWidget(self.cred_gh_save_btn)
+
+        self.cred_gh_clear_btn = QPushButton("清除")
+        self.cred_gh_clear_btn.setStyleSheet(ThemeManager.get_button_style("danger"))
+        self.cred_gh_clear_btn.clicked.connect(self._on_clear_github_token)
+        gh_btn_layout.addWidget(self.cred_gh_clear_btn)
+        gh_btn_layout.addStretch()
+        github_layout.addRow("", gh_btn_layout)
+
+        github_group.setLayout(github_layout)
+        layout.addWidget(github_group)
+
+        # ── AI API Key 组 ──
+        ai_group = QGroupBox("AI API 密钥")
+        ai_layout = QFormLayout()
+        ai_layout.setSpacing(10)
+
+        self.cred_ai_key_input = QLineEdit()
+        self.cred_ai_key_input.setPlaceholderText("AI API Key")
+        self.cred_ai_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cred_ai_key_input.setStyleSheet(ThemeManager.get_input_style())
+        ai_layout.addRow("API Key:", self.cred_ai_key_input)
+
+        ai_btn_layout = QHBoxLayout()
+        self.cred_ai_save_btn = QPushButton("保存")
+        self.cred_ai_save_btn.setStyleSheet(ThemeManager.get_button_style("primary"))
+        self.cred_ai_save_btn.clicked.connect(self._on_save_ai_key)
+        ai_btn_layout.addWidget(self.cred_ai_save_btn)
+        ai_btn_layout.addStretch()
+        ai_layout.addRow("", ai_btn_layout)
+
+        ai_group.setLayout(ai_layout)
+        layout.addWidget(ai_group)
+
+        # ── 自定义凭证组 ──
+        custom_group = QGroupBox("自定义凭证（{{credential.xxx}} 占位符）")
+        custom_layout = QVBoxLayout()
+        custom_layout.setSpacing(10)
+
+        custom_info = QLabel(
+            "自定义凭证可在节点配置中以 {{credential.自定义键名}} 方式引用。"
+        )
+        custom_info.setWordWrap(True)
+        custom_info.setStyleSheet(
+            f"color: {ThemeManager.COLORS['text_secondary']}; font-size: 12px;"
+        )
+        custom_layout.addWidget(custom_info)
+
+        # 自定义凭证表格
+        self.cred_custom_table = QTableWidget(0, 3)
+        self.cred_custom_table.setHorizontalHeaderLabels(["键名", "值（已加密存储）", "操作"])
+        self.cred_custom_table.verticalHeader().setVisible(False)
+        self.cred_custom_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.cred_custom_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.cred_custom_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeToContents
+        )
+        self.cred_custom_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.Stretch
+        )
+        self.cred_custom_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
+        )
+        self.cred_custom_table.setStyleSheet(ThemeManager.get_table_style())
+        custom_layout.addWidget(self.cred_custom_table)
+
+        # 添加自定义凭证行
+        add_custom_widget = QWidget()
+        add_custom_layout = QHBoxLayout(add_custom_widget)
+        add_custom_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.cred_custom_key_input = QLineEdit()
+        self.cred_custom_key_input.setPlaceholderText("键名 (如 my_api_key)")
+        self.cred_custom_key_input.setStyleSheet(ThemeManager.get_input_style())
+        add_custom_layout.addWidget(self.cred_custom_key_input, 1)
+
+        self.cred_custom_value_input = QLineEdit()
+        self.cred_custom_value_input.setPlaceholderText("值")
+        self.cred_custom_value_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cred_custom_value_input.setStyleSheet(ThemeManager.get_input_style())
+        add_custom_layout.addWidget(self.cred_custom_value_input, 2)
+
+        add_custom_btn = QPushButton("➕ 添加")
+        add_custom_btn.setStyleSheet(ThemeManager.get_button_style("primary"))
+        add_custom_btn.clicked.connect(self._on_add_custom_credential)
+        add_custom_layout.addWidget(add_custom_btn)
+
+        custom_layout.addWidget(add_custom_widget)
+
+        custom_group.setLayout(custom_layout)
+        layout.addWidget(custom_group)
+
+        layout.addStretch()
+
+        # 加载现有凭证
+        self._load_credentials_data()
+        self._load_custom_credentials()
+
+        return tab
+
+    def _load_credentials_data(self):
+        """加载所有凭证数据到界面"""
+        # GitHub
+        gh = self.config_manager.get_github_settings()
+        if gh.get("connected") and gh.get("username"):
+            self.cred_gh_status_label.setText(f"✓ 已连接: {gh['username']}")
+            self.cred_gh_status_label.setStyleSheet(
+                f"color: {ThemeManager.COLORS.get('success', '#4CAF50')};"
+            )
+        token_val = gh.get("token", "")
+        if token_val:
+            self.cred_gh_token_input.setText("••••••" + token_val[-4:])
+            self.cred_gh_token_input.setProperty("_stored_token", token_val)
+        else:
+            self.cred_gh_token_input.setText("")
+            self.cred_gh_token_input.setProperty("_stored_token", "")
+
+        # AI
+        ai = self.config_manager.get_ai_settings()
+        ai_key = ai.get("api_key", "")
+        if ai_key:
+            self.cred_ai_key_input.setText("••••••" + ai_key[-4:])
+            self.cred_ai_key_input.setProperty("_stored_ai_key", ai_key)
+        else:
+            self.cred_ai_key_input.setText("")
+            self.cred_ai_key_input.setProperty("_stored_ai_key", "")
+
+    def _on_save_github_token(self):
+        """保存 GitHub Token"""
+        token = self.cred_gh_token_input.text().strip()
+        if not token:
+            ToastWidget.show_message(self, "请输入 Token", "warning")
+            return
+        # 去掉可能的 •••••• 前缀（加载时显示的掩码）
+        if token.startswith("••••••"):
+            stored = self.cred_gh_token_input.property("_stored_token")
+            if stored:
+                token = stored
+            else:
+                ToastWidget.show_message(self, "Token 未变更", "info")
+                return
+        self.config_manager.set_github_settings({
+            "token": token,
+            "username": "PAT",
+            "connected": True,
+        })
+        self._load_credentials_data()
+        ToastWidget.show_message(self, "GitHub Token 已保存", "success")
+
+    def _on_clear_github_token(self):
+        """清除 GitHub Token"""
+        self.config_manager.set_github_settings({
+            "token": "",
+            "username": "",
+            "connected": False,
+        })
+        self._load_credentials_data()
+        ToastWidget.show_message(self, "GitHub Token 已清除", "info")
+
+    def _on_save_ai_key(self):
+        """保存 AI API Key"""
+        api_key = self.cred_ai_key_input.text().strip()
+        if not api_key:
+            ToastWidget.show_message(self, "请输入 API Key", "warning")
+            return
+        if api_key.startswith("••••••"):
+            stored = self.cred_ai_key_input.property("_stored_ai_key")
+            if stored:
+                api_key = stored
+            else:
+                ToastWidget.show_message(self, "API Key 未变更", "info")
+                return
+        settings = self.config_manager.get_ai_settings()
+        settings["api_key"] = api_key
+        self.config_manager.set_ai_settings(settings)
+        self._load_credentials_data()
+        ToastWidget.show_message(self, "AI API Key 已保存", "success")
+
+    def _on_add_custom_credential(self):
+        """添加自定义凭证"""
+        key = self.cred_custom_key_input.text().strip()
+        value = self.cred_custom_value_input.text().strip()
+        if not key or not value:
+            ToastWidget.show_message(self, "请填写键名和值", "warning")
+            return
+        from src.core.credential_store import store_credential
+        from src.core._file_utils import atomic_write_json
+
+        encrypted = store_credential(key, value)
+        if encrypted:
+            config = self.config_manager.config
+            if "custom_credentials" not in config:
+                config["custom_credentials"] = {}
+            config["custom_credentials"][key] = encrypted
+            self.config_manager.save_config()
+            self._load_custom_credentials()
+            self.cred_custom_key_input.clear()
+            self.cred_custom_value_input.clear()
+            ToastWidget.show_message(self, f"凭证 '{key}' 已保存", "success")
+        else:
+            ToastWidget.show_message(self, "凭证保存失败", "error")
+
+    def _load_custom_credentials(self):
+        """加载自定义凭证列表"""
+        from src.core.credential_store import retrieve_credential
+
+        config = self.config_manager.config
+        custom = config.get("custom_credentials", {})
+        self.cred_custom_table.setRowCount(0)
+        for key, encrypted_val in custom.items():
+            row = self.cred_custom_table.rowCount()
+            self.cred_custom_table.insertRow(row)
+            self.cred_custom_table.setItem(row, 0, QTableWidgetItem(key))
+            # 显示掩码
+            self.cred_custom_table.setItem(row, 1, QTableWidgetItem("•••••• 已加密"))
+            del_btn = QPushButton("🗑 删除")
+            del_btn.setStyleSheet(ThemeManager.get_button_style("danger"))
+            del_btn.clicked.connect(
+                lambda checked, k=key: self._on_delete_custom_credential(k)
+            )
+            self.cred_custom_table.setCellWidget(row, 2, del_btn)
+
+    def _on_delete_custom_credential(self, key):
+        """删除自定义凭证"""
+        from src.core.credential_store import delete_credential
+
+        delete_credential(key)
+        config = self.config_manager.config
+        if "custom_credentials" in config and key in config["custom_credentials"]:
+            del config["custom_credentials"][key]
+            self.config_manager.save_config()
+        self._load_custom_credentials()
+        ToastWidget.show_message(self, f"凭证 '{key}' 已删除", "info")
 
     def _load_scheduled_tasks(self):
         """加载定时任务"""

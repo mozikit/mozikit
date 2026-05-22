@@ -229,3 +229,6 @@ config.json
 
 # Official nodes snapshot (synced from localflow-official-nodes repo at build time)
 official_nodes/
+
+# System library downloads
+*.deb
