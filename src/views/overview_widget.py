@@ -71,6 +71,7 @@ class WorkflowListItem(QFrame):
     run_clicked = Signal(str, str)  # workflow_name, workflow_path
     delete_clicked = Signal(str)  # workflow_name
     edit_clicked = Signal(str, str)  # workflow_name, workflow_path
+    sync_clicked = Signal(str, str)  # workflow_name, workflow_path
 
     def __init__(
         self,
@@ -245,6 +246,17 @@ class WorkflowListItem(QFrame):
         self.more_btn.setMenu(menu)
         self.more_btn.setPopupMode(QToolButton.InstantPopup)
         action_layout.addWidget(self.more_btn)
+
+        # 同步按钮
+        self.sync_btn = QToolButton()
+        self.sync_btn.setText("☁️")
+        self.sync_btn.setToolTip("GitHub 同步")
+        self.sync_btn.setFixedSize(28, 28)
+        self.sync_btn.setStyleSheet(self._get_action_btn_style())
+        self.sync_btn.clicked.connect(
+            lambda: self.sync_clicked.emit(self.workflow_name, self.workflow_path)
+        )
+        action_layout.addWidget(self.sync_btn)
 
         right_layout.addWidget(
             self.action_container, alignment=Qt.AlignTop | Qt.AlignRight
@@ -767,6 +779,7 @@ class OverviewWidget(QWidget):
                 item.run_clicked.connect(self._on_run_workflow)
                 item.edit_clicked.connect(self._on_edit_workflow)
                 item.delete_clicked.connect(self._on_delete_workflow)
+                item.sync_clicked.connect(self._on_sync_workflow)
 
                 self.list_layout.addWidget(item)
                 self.workflow_items[workflow["name"].lower()] = item
@@ -986,6 +999,14 @@ class OverviewWidget(QWidget):
                 QMessageBox.critical(self, "删除失败", f"无法删除工作流:\n{str(e)}")
             finally:
                 self._load_workflows()
+
+    def _on_sync_workflow(self, workflow_name: str, workflow_path: str):
+        """打开工作流同步对话框"""
+        from src.dialogs.workflow_sync_dialog import WorkflowSyncDialog
+        dialog = WorkflowSyncDialog(workflow_name, workflow_path, self)
+        dialog.exec()
+        # 同步完成后刷新列表（可能从远程拉取了更新）
+        self._load_workflows()
 
     def refresh_workflows(self):
         """刷新工作流列表"""
@@ -1342,7 +1363,7 @@ class OverviewWidget(QWidget):
         """保存 GitHub Token"""
         token = self.cred_gh_token_input.text().strip()
         if not token:
-            ToastWidget.show_message(self, "请输入 Token", "warning")
+            ToastWidget.show(self, "请输入 Token", "warning")
             return
         # 去掉可能的 •••••• 前缀（加载时显示的掩码）
         if token.startswith("••••••"):
@@ -1350,7 +1371,7 @@ class OverviewWidget(QWidget):
             if stored:
                 token = stored
             else:
-                ToastWidget.show_message(self, "Token 未变更", "info")
+                ToastWidget.show(self, "Token 未变更", "info")
                 return
         self.config_manager.set_github_settings({
             "token": token,
@@ -1358,7 +1379,7 @@ class OverviewWidget(QWidget):
             "connected": True,
         })
         self._load_credentials_data()
-        ToastWidget.show_message(self, "GitHub Token 已保存", "success")
+        ToastWidget.show(self, "GitHub Token 已保存", "success")
 
     def _on_clear_github_token(self):
         """清除 GitHub Token"""
@@ -1368,33 +1389,33 @@ class OverviewWidget(QWidget):
             "connected": False,
         })
         self._load_credentials_data()
-        ToastWidget.show_message(self, "GitHub Token 已清除", "info")
+        ToastWidget.show(self, "GitHub Token 已清除", "info")
 
     def _on_save_ai_key(self):
         """保存 AI API Key"""
         api_key = self.cred_ai_key_input.text().strip()
         if not api_key:
-            ToastWidget.show_message(self, "请输入 API Key", "warning")
+            ToastWidget.show(self, "请输入 API Key", "warning")
             return
         if api_key.startswith("••••••"):
             stored = self.cred_ai_key_input.property("_stored_ai_key")
             if stored:
                 api_key = stored
             else:
-                ToastWidget.show_message(self, "API Key 未变更", "info")
+                ToastWidget.show(self, "API Key 未变更", "info")
                 return
         settings = self.config_manager.get_ai_settings()
         settings["api_key"] = api_key
         self.config_manager.set_ai_settings(settings)
         self._load_credentials_data()
-        ToastWidget.show_message(self, "AI API Key 已保存", "success")
+        ToastWidget.show(self, "AI API Key 已保存", "success")
 
     def _on_add_custom_credential(self):
         """添加自定义凭证"""
         key = self.cred_custom_key_input.text().strip()
         value = self.cred_custom_value_input.text().strip()
         if not key or not value:
-            ToastWidget.show_message(self, "请填写键名和值", "warning")
+            ToastWidget.show(self, "请填写键名和值", "warning")
             return
         from src.core.credential_store import store_credential
         from src.core._file_utils import atomic_write_json
@@ -1409,9 +1430,9 @@ class OverviewWidget(QWidget):
             self._load_custom_credentials()
             self.cred_custom_key_input.clear()
             self.cred_custom_value_input.clear()
-            ToastWidget.show_message(self, f"凭证 '{key}' 已保存", "success")
+            ToastWidget.show(self, f"凭证 '{key}' 已保存", "success")
         else:
-            ToastWidget.show_message(self, "凭证保存失败", "error")
+            ToastWidget.show(self, "凭证保存失败", "error")
 
     def _load_custom_credentials(self):
         """加载自定义凭证列表"""
@@ -1443,7 +1464,7 @@ class OverviewWidget(QWidget):
             del config["custom_credentials"][key]
             self.config_manager.save_config()
         self._load_custom_credentials()
-        ToastWidget.show_message(self, f"凭证 '{key}' 已删除", "info")
+        ToastWidget.show(self, f"凭证 '{key}' 已删除", "info")
 
     def _load_scheduled_tasks(self):
         """加载定时任务"""

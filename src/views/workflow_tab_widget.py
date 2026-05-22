@@ -172,6 +172,13 @@ class WorkflowTabWidget(QWidget):
         self.save_btn.setEnabled(False)
         toolbar_layout.addWidget(self.save_btn)
 
+        # 同步按钮
+        self.sync_btn = QPushButton("☁️ 同步")
+        self.sync_btn.setStyleSheet(ThemeManager.get_button_style("secondary"))
+        self.sync_btn.setToolTip("同步到 GitHub")
+        self.sync_btn.clicked.connect(self._on_sync_clicked)
+        toolbar_layout.addWidget(self.sync_btn)
+
         layout.addWidget(toolbar)
 
         # Create a new scene
@@ -960,6 +967,26 @@ class WorkflowTabWidget(QWidget):
         self.name_edit.hide()
         self.name_label.show()
         self.rename_btn.show()
+
+    def _on_sync_clicked(self):
+        """打开同步对话框"""
+        # 先保存当前工作流
+        if self._is_modified:
+            self._save_workflow()
+
+        workflow_path = f"workflows/{self.workflow_name}/workflow.json"
+        if not os.path.exists(workflow_path):
+            # 工作流尚未保存，先保存
+            self._save_workflow()
+
+        if not os.path.exists(workflow_path):
+            from src.views.toast_widget import ToastWidget
+            ToastWidget.show(self, "请先保存工作流", "warning")
+            return
+
+        from src.dialogs.workflow_sync_dialog import WorkflowSyncDialog
+        dialog = WorkflowSyncDialog(self.workflow_name, workflow_path, self)
+        dialog.exec()
 
     def _rename_workflow_files(self, new_name: str) -> bool:
         """重命名工作流文件和目录

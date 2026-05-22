@@ -48,6 +48,12 @@ class ConfigManager:
         if self.config.get(self._CREDENTIAL_VERSION_KEY, 0) < self._CREDENTIAL_VERSION_CURRENT:
             self.config[self._CREDENTIAL_VERSION_KEY] = self._CREDENTIAL_VERSION_CURRENT
 
+    DEFAULT_SYNC_SETTINGS = {
+        "default_repo": "",
+        "default_branch": "main",
+        "sync_path": "workflows",
+    }
+
     DEFAULT_NODE_REPO_SETTINGS = {
         "official_repo_url": "https://github.com/localflow-app/localflow-official-nodes",
         "auto_check_updates": True,
@@ -403,6 +409,22 @@ class ConfigManager:
     def get_github_token(self) -> str:
         """获取 GitHub token"""
         return self.get_github_settings().get("token", "")
+
+    # ========== 工作流同步设置 ==========
+
+    def get_sync_settings(self) -> dict:
+        """获取工作流同步设置"""
+        settings = self.config.get("sync_settings", {})
+        merged = self.DEFAULT_SYNC_SETTINGS.copy()
+        merged.update(settings)
+        return merged
+
+    def set_sync_settings(self, settings: dict):
+        """设置工作流同步设置"""
+        merged = self.DEFAULT_SYNC_SETTINGS.copy()
+        merged.update(settings or {})
+        self.config["sync_settings"] = merged
+        self.save_config()
 
     # ========== 节点仓库管理 ==========
 

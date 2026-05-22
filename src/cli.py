@@ -1916,6 +1916,185 @@ def workflow_import(
     console.print(f"  节点: {len(executor.nodes)}, 连接: {len(executor.edges)}")
 
 
+# ── workflow sync 命令组 ──────────────────────────
+
+sync_app = typer.Typer(help="GitHub 工作流同步", no_args_is_help=True)
+workflow_app.add_typer(sync_app, name="sync")
+
+
+def _get_sync_service(repo: Optional[str], branch: Optional[str], path: Optional[str]):
+    """创建 WorkflowSync 实例并应用配置"""
+    from src.core.workflow_sync import WorkflowSync
+    mgr = ConfigManager()
+    svc = WorkflowSync(mgr)
+    svc.refresh_token()
+    settings = mgr.get_sync_settings()
+    owner_repo = repo or settings.get("default_repo", "")
+    if owner_repo:
+        svc.set_repo(
+            owner_repo=owner_repo,
+            branch=branch or settings.get("default_branch", "main"),
+            path=path or settings.get("sync_path", "workflows"),
+        )
+    return svc, mgr
+
+
+@sync_app.command("push")
+def sync_push(
+    workflow_name: str = typer.Argument(..., help="工作流名称"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="GitHub 仓库 (owner/repo)"),
+    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="分支名"),
+    path: Optional[str] = typer.Option(None, "--path", "-p", help="仓库内路径前缀"),
+):
+    """将本地工作流推送到 GitHub 仓库"""
+    from src.core import resolve_workspace
+    ws = resolve_workspace()
+    workflow_file = ws / workflow_name / "workflow.json"
+    if not workflow_file.exists():
+        console.print(f"[red]错误:[/] 工作流文件不存在: {workflow_file}")
+        raise typer.Exit(code=1)
+
+    svc, _ = _get_sync_service(repo, branch, path)
+    if not svc.is_configured():
+        console.print("[red]错误:[/] 同步未配置。请先通过 `localflow config github-login` 登录 GitHub，")
+        console.print("  并在设置中配置默认仓库，或使用 --repo 参数指定仓库。")
+        raise typer.Exit(code=1)
+
+    with console.status(f"正在推送 {workflow_name}..."):
+        success, message = svc.push_workflow(str(workflow_file))
+
+    if success:
+        console.print(f"[green]✓[/] {message}")
+    else:
+        console.print(f"[red]✗[/] {message}")
+        raise typer.Exit(code=1)
+
+
+@sync_app.command("pull")
+def sync_pull(
+    workflow_name: str = typer.Argument(..., help="工作流名称"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="GitHub 仓库 (owner/repo)"),
+    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="分支名"),
+    path: Optional[str] = typer.Option(None, "--path", "-p", help="仓库内路径前缀"),
+):
+    """从 GitHub 仓库拉取工作流到本地"""
+    from src.core import resolve_workspace
+    ws = resolve_workspace()
+
+    svc, _ = _get_sync_service(repo, branch, path)
+    if not svc.is_configured():
+        console.print("[red]错误:[/] 同步未配置。请先通过 `localflow config github-login` 登录 GitHub。")
+        raise typer.Exit(code=1)
+
+    with console.status(f"正在拉取 {workflow_name}..."):
+        success, message = svc.pull_workflow(workflow_name, str(ws))
+
+    if success:
+        console.print(f"[green]✓[/] {message}")
+    else:
+        console.print(f"[red]✗[/] {message}")
+        raise typer.Exit(code=1)
+
+
+@sync_app.command("status")
+def sync_status(
+    workflow_name: str = typer.Argument(..., help="工作流名称"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="GitHub 仓库 (owner/repo)"),
+    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="分支名"),
+    path: Optional[str] = typer.Option(None, "--path", "-p", help="仓库内路径前缀"),
+):
+    """查看工作流同步状态"""
+    from src.core import resolve_workspace
+    ws = resolve_workspace()
+    workflow_file = ws / workflow_name / "workflow.json"
+    if not workflow_file.exists():
+        console.print(f"[red]错误:[/] 工作流文件不存在: {workflow_file}")
+        raise typer.Exit(code=1)
+
+    svc, _ = _get_sync_service(repo, branch, path)
+    if not svc.is_configured():
+        console.print("[yellow]⚠[/] 同步未配置")
+        console.print("  请先通过 GitHub 登录并配置默认仓库。")
+        raise typer.Exit(code=1)
+
+    result = svc.check_status(str(workflow_file))
+    status_map = {
+        "identical": ("相同", "green"),
+        "ahead": ("本地领先", "yellow"),
+        "behind": ("本地落后", "yellow"),
+        "diverged": ("内容不同", "red"),
+        "remote_only": ("仅远程存在", "yellow"),
+        "local_only": ("仅本地存在", "yellow"),
+        "error": ("错误", "red"),
+    }
+    status_text, color = status_map.get(result["status"], ("未知", "white"))
+    console.print(f"工作流: [bold]{workflow_name}[/]")
+    console.print(f"状态: [{color}]{status_text}[/]")
+    console.print(f"  信息: {result['message']}")
+    if result.get("local_sha"):
+        console.print(f"  本地 SHA: {result['local_sha'][:12]}")
+        console.print(f"  本地更新: {result.get('local_updated_at', 'unknown')[:19]}")
+    if result.get("remote_sha"):
+        console.print(f"  远程 SHA: {result['remote_sha'][:12]}")
+        console.print(f"  远程更新: {result.get('remote_updated_at', 'unknown')[:19]}")
+
+
+@sync_app.command("list")
+def sync_list(
+    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="GitHub 仓库 (owner/repo)"),
+    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="分支名"),
+    path: Optional[str] = typer.Option(None, "--path", "-p", help="仓库内路径前缀"),
+):
+    """列出远程仓库中的工作流"""
+    svc, _ = _get_sync_service(repo, branch, path)
+    if not svc.is_configured():
+        console.print("[red]错误:[/] 同步未配置。请先配置 GitHub 仓库。")
+        raise typer.Exit(code=1)
+
+    with console.status("正在获取远程工作流列表..."):
+        success, workflows = svc.list_remote_workflows()
+
+    if not success:
+        console.print("[red]获取远程工作流列表失败[/]")
+        raise typer.Exit(code=1)
+
+    if not workflows:
+        console.print("远程仓库中没有工作流")
+        return
+
+    table = Table(title=f"远程工作流 ({svc._owner}/{svc._repo})", box=box.ROUNDED)
+    table.add_column("名称", style="cyan")
+    table.add_column("SHA", style="dim")
+    table.add_column("路径", style="white")
+
+    for wf in workflows:
+        table.add_row(
+            wf["name"],
+            wf["sha"][:12],
+            wf["path"],
+        )
+    console.print(table)
+
+
+@sync_app.command("config")
+def sync_config(
+    repo: str = typer.Option("", "--repo", "-r", help="默认 GitHub 仓库 (owner/repo)"),
+    branch: str = typer.Option("main", "--branch", "-b", help="默认分支名"),
+    path: str = typer.Option("workflows", "--path", "-p", help="默认仓库内路径前缀"),
+):
+    """设置默认同步配置"""
+    _, mgr = _get_sync_service(None, None, None)
+    current = mgr.get_sync_settings()
+    current["default_repo"] = repo if repo else current.get("default_repo", "")
+    current["default_branch"] = branch
+    current["sync_path"] = path
+    mgr.set_sync_settings(current)
+    console.print("[green]✓[/] 默认同步配置已更新:")
+    console.print(f"  仓库: {current['default_repo']}")
+    console.print(f"  分支: {current['default_branch']}")
+    console.print(f"  路径: {current['sync_path']}")
+
+
 # ── serve 命令 ─────────────────────────────────────
 
 @app.command()

@@ -745,6 +745,56 @@ class SettingsDialog(QDialog):
 
         self.tab_widget.addTab(github_tab, "GitHub")
 
+        # === GitHub 同步标签页 ===
+        sync_tab = QWidget()
+        sync_layout = QVBoxLayout(sync_tab)
+        sync_layout.setContentsMargins(12, 12, 12, 12)
+        sync_layout.setSpacing(16)
+
+        sync_group = QGroupBox("同步仓库配置")
+        sync_form_layout = QFormLayout()
+        sync_form_layout.setSpacing(12)
+
+        sync_info = QLabel(
+            "配置默认的 GitHub 仓库用于工作流同步（push/pull）。\n"
+            "需要先在上方 GitHub 标签页完成登录。"
+        )
+        sync_info.setStyleSheet(
+            f"color: {ThemeManager.COLORS['text_secondary']}; font-size: 12px;"
+        )
+        sync_info.setWordWrap(True)
+        sync_form_layout.addRow(sync_info)
+
+        self.sync_repo_input = QLineEdit()
+        self.sync_repo_input.setPlaceholderText("owner/repo（例如：username/my-flows）")
+        self.sync_repo_input.setStyleSheet(ThemeManager.get_input_style())
+        sync_form_layout.addRow("仓库:", self.sync_repo_input)
+
+        self.sync_branch_input = QLineEdit("main")
+        self.sync_branch_input.setPlaceholderText("main")
+        self.sync_branch_input.setStyleSheet(ThemeManager.get_input_style())
+        sync_form_layout.addRow("分支:", self.sync_branch_input)
+
+        self.sync_path_input = QLineEdit("workflows")
+        self.sync_path_input.setPlaceholderText("workflows")
+        self.sync_path_input.setStyleSheet(ThemeManager.get_input_style())
+        sync_form_layout.addRow("路径前缀:", self.sync_path_input)
+
+        sync_hint = QLabel(
+            "工作流将存储在仓库的 <路径前缀>/<工作流名称>/workflow.json 位置"
+        )
+        sync_hint.setStyleSheet(
+            f"color: {ThemeManager.COLORS['text_secondary']}; font-size: 11px;"
+        )
+        sync_hint.setWordWrap(True)
+        sync_form_layout.addRow(sync_hint)
+
+        sync_group.setLayout(sync_form_layout)
+        sync_layout.addWidget(sync_group)
+        sync_layout.addStretch()
+
+        self.tab_widget.addTab(sync_tab, "GitHub 同步")
+
         layout.addWidget(self.tab_widget)
 
         # 底部按钮
@@ -845,6 +895,9 @@ class SettingsDialog(QDialog):
         # AI 设置
         self._load_ai_settings()
 
+        # GitHub 同步设置
+        self._load_sync_settings()
+
     def _load_ai_settings(self):
         """加载 AI 设置"""
         settings = self.config_manager.get_ai_settings()
@@ -877,6 +930,13 @@ class SettingsDialog(QDialog):
             self.gh_verify_url_label.clear()
             self.gh_verify_url_label.setVisible(False)
 
+    def _load_sync_settings(self):
+        """加载 GitHub 同步设置"""
+        settings = self.config_manager.get_sync_settings()
+        self.sync_repo_input.setText(settings.get("default_repo", ""))
+        self.sync_branch_input.setText(settings.get("default_branch", "main"))
+        self.sync_path_input.setText(settings.get("sync_path", "workflows"))
+
     def _save_settings(self):
         """保存所有设置"""
         # 执行设置
@@ -884,6 +944,9 @@ class SettingsDialog(QDialog):
 
         # AI 设置
         self._save_ai_settings()
+
+        # GitHub 同步设置
+        self._save_sync_settings()
 
     def _save_ai_settings(self):
         """保存 AI 设置"""
@@ -898,6 +961,15 @@ class SettingsDialog(QDialog):
             "tools_enabled": self.ai_tools_enabled_checkbox.isChecked(),
         }
         self.config_manager.set_ai_settings(settings)
+
+    def _save_sync_settings(self):
+        """保存 GitHub 同步设置"""
+        settings = {
+            "default_repo": self.sync_repo_input.text().strip(),
+            "default_branch": self.sync_branch_input.text().strip() or "main",
+            "sync_path": self.sync_path_input.text().strip() or "workflows",
+        }
+        self.config_manager.set_sync_settings(settings)
 
     def _on_test_ai_connection(self):
         """测试 AI API 连接"""
