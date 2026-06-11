@@ -232,3 +232,12 @@ official_nodes/
 
 # System library downloads
 *.deb
+
+# Runtime execution logs
+runs/
+
+# Generated node scripts (produced at execution time)
+scripts/node_n*.py
+
+# External tools (not part of the project)
+tools/

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.expression_engine import render_expressions
 from src.core.log_manager import get_logger
 
 from .node_base import NodeBase
@@ -514,6 +515,22 @@ class WorkflowExecutor:
 
         # 解析 credentials，通过 stdin 传递（不写入脚本文件）
         input_data = self._resolve_creds_in_input(node_id, input_data or {})
+
+        # 渲染节点配置中的 Jinja2 表达式（{% %}），将结果注入 input_data
+        # 这样用户在 config 字段中写的 {% context_var %} 在执行前被解析
+        # 注意：渲染后的 config 值会覆盖 input_data 中已有的同名 key
+        for key, value in node.config.items():
+            if not isinstance(value, str) or "{%" not in value:
+                continue
+            rendered = render_expressions(value, self.context)
+            if rendered != value:
+                if key in input_data:
+                    logger.debug(
+                        "节点 %s: config 中的 '%s' 覆盖 input_data 中的已有值",
+                        node_id, key,
+                    )
+                input_data[key] = rendered
+
         workflow_dir = self.uv_manager.get_workflow_dir(self.workflow_name)
         scripts_dir = workflow_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
@@ -603,6 +620,7 @@ class WorkflowExecutor:
         Returns:
             节点输出数据
         """
+        input_data = render_expressions(input_data or {}, self.context)
         raw_output, node_report = self._execute_node_with_details(
             node_id, input_data, worker_process
         )
@@ -842,6 +860,8 @@ class WorkflowExecutor:
                     break
 
                 input_data = self._build_node_input(node_id)
+                # 渲染 Jinja2 表达式（{% %}），将上游输出注入 config 字符串
+                input_data = render_expressions(input_data, self.context)
                 raw_output, node_report = self._execute_node_with_details(
                     node_id, input_data, worker_process, on_node_progress, on_node_log
                 )
