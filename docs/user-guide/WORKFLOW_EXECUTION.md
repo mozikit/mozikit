@@ -1,8 +1,8 @@
-# LocalFlow 工作流执行系统
+# Mozikit 工作流执行系统
 
 ## 概述
 
-LocalFlow 是一个基于 UV 包管理器的可视化工作流执行系统。每个工作流都有独立的 Python 虚拟环境（使用 UV 的共享缓存），节点之间通过 JSON 序列化传递数据。
+Mozikit 是一个基于 UV 包管理器的可视化工作流执行系统。每个工作流都有独立的 Python 虚拟环境（使用 UV 的共享缓存），节点之间通过 JSON 序列化传递数据。
 
 ## 核心架构
 
@@ -208,7 +208,7 @@ print(f"温度转换: {result['temperature']}°C = {result['fahrenheit']}°F")
 ## 目录结构
 
 ```
-LocalFlow/
+Mozikit/
 ├── src/
 │   ├── core/                    # 核心执行引擎
 │   │   ├── uv_manager.py       # UV 环境管理
@@ -355,3 +355,4 @@ result = uv_manager.run_python_script(
 ---
 
 **开始构建你的第一个工作流吧！** 🚀
+

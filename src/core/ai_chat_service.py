@@ -468,7 +468,7 @@ class AIChatService:
         available_types = workflow_context.get("available_node_types", [])
 
         return (
-            "你是 LocalFlow 的 AI 助手，专门帮助用户组织和管理工作流节点。\n\n"
+            "你是 Mozikit 的 AI 助手，专门帮助用户组织和管理工作流节点。\n\n"
             "## 你的能力\n"
             "你可以通过工具调用直接操作工作流画布：\n"
             "- **节点操作**: add_node, delete_node, connect_nodes, disconnect_nodes, update_node_config\n"

@@ -151,7 +151,7 @@ def test_code_imports():
 
 def main():
     print("=" * 60)
-    print("LocalFlow 功能改进测试")
+    print("Mozikit 功能改进测试")
     print("=" * 60)
     
     results = []

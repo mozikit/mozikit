@@ -1,4 +1,4 @@
-# LocalFlow 最终打包解决方案
+# Mozikit 最终打包解决方案
 
 ## 🎯 **问题解决状态**
 
@@ -35,20 +35,20 @@ python final_build.py
 #### **生成的文件结构**
 ```
 dist/
-├── LocalFlow/                    # 主版本（推荐分发）
-│   ├── LocalFlow.exe            # 主程序（含图标）
+├── Mozikit/                    # 主版本（推荐分发）
+│   ├── Mozikit.exe            # 主程序（含图标）
 │   └── _internal/             # 依赖文件
-└── LocalFlow_Portable/          # 便携版本
-    ├── LocalFlow/              # 程序目录
-    │   ├── LocalFlow.exe
+└── Mozikit_Portable/          # 便携版本
+    ├── Mozikit/              # 程序目录
+    │   ├── Mozikit.exe
     │   └── _internal/
-    └── 启动LocalFlow.bat       # Windows启动脚本
+    └── 启动Mozikit.bat       # Windows启动脚本
 ```
 
 ### 📊 **技术规格**
 
 - **文件大小**: 1.7 MB（压缩后）
-- **启动方式**: `dist/LocalFlow/LocalFlow.exe`
+- **启动方式**: `dist/Mozikit/Mozikit.exe`
 - **图标格式**: ICO（优先）/ PNG（需要Pillow）
 - **许可证**: PySide6 LGPL 合规
 - **Python版本**: 3.11+
@@ -97,14 +97,14 @@ dist/
 ### 📋 **最终建议**
 
 1. **日常开发**: 使用 `final_build.py`
-2. **分发给用户**: `dist/LocalFlow/` 目录
-3. **专业部署**: `dist/LocalFlow_Portable/` 
+2. **分发给用户**: `dist/Mozikit/` 目录
+3. **专业部署**: `dist/Mozikit_Portable/` 
 4. **调试开发**: 目录版本（启动更快）
 5. **删除文件**: `build.py`, `auto_build.py`, `quick_build.py`, `fix_icon_build.py`
 
 ## 🏁 **结论**
 
-LocalFlow 的打包问题已完全解决：
+Mozikit 的打包问题已完全解决：
 - ✅ 图标显示正常
 - ✅ 符合 LGPL 要求
 - ✅ 跨平台兼容

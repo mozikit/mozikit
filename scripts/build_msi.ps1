@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Tag,
 
-    [string]$SourceDir = "dist/LocalFlow",
+    [string]$SourceDir = "dist/Mozikit",
     [string]$OutputDir = "release"
 )
 
@@ -52,7 +52,7 @@ $wxsOut = Join-Path $workDir "harvested.wxs"
 $templateWxs = Join-Path $projectRoot "wix/main.wxs"
 $mainWxsOut = Join-Path $workDir "main.wxs"
 $productVersion = Convert-ToWixVersion -Version $Tag
-$msiName = "localflow-$Tag-x64.msi"
+$msiName = "mozikit-$Tag-x64.msi"
 
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null
 New-Item -ItemType Directory -Force -Path $objDir | Out-Null
@@ -67,20 +67,20 @@ $templateContent = Get-Content -Path $templateWxs -Raw
 $renderedContent = $templateContent.Replace("__PRODUCT_VERSION__", $productVersion)
 Set-Content -Path $mainWxsOut -Value $renderedContent -Encoding utf8
 
-# Copy icon to WiX work directory so candle can resolve localflow.ico
-$iconSource = Join-Path $projectRoot "assets\localflow.ico"
+# Copy icon to WiX work directory so candle can resolve mozikit.ico
+$iconSource = Join-Path $projectRoot "assets\mozikit.ico"
 if (-not (Test-Path $iconSource)) {
     throw "Missing icon file: $iconSource"
 }
-Copy-Item -Path $iconSource -Destination (Join-Path $workDir "localflow.ico") -Force
+Copy-Item -Path $iconSource -Destination (Join-Path $workDir "mozikit.ico") -Force
 
 # Also copy icon to source directory so light.exe can find it during linking
-Copy-Item -Path $iconSource -Destination (Join-Path $resolvedSourceDir "localflow.ico") -Force
+Copy-Item -Path $iconSource -Destination (Join-Path $resolvedSourceDir "mozikit.ico") -Force
 
 Write-Host "Harvesting files from $SourceDir"
 & $heat dir $resolvedSourceDir `
     -nologo `
-    -cg LocalFlowFiles `
+    -cg MozikitFiles `
     -dr INSTALLFOLDER `
     -gg `
     -scom `

@@ -306,7 +306,7 @@ def test_tool_call_signature_normalizes_arguments():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("LocalFlow AI Agent 工具扩展测试")
+    print("Mozikit AI Agent 工具扩展测试")
     print("=" * 60)
 
     try:

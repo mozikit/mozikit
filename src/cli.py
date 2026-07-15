@@ -1,5 +1,5 @@
 """
-LocalFlow CLI
+Mozikit CLI
 完整的命令行接口，支持工作流执行、定时调度、环境与节点管理等操作。
 """
 import json
@@ -11,7 +11,7 @@ from typing import Optional, List
 
 import typer
 
-from src.core.exceptions import LocalFlowError
+from src.core.exceptions import MozikitError
 from rich.console import Console
 from rich.table import Table
 from rich.progress import (
@@ -34,8 +34,8 @@ from src.core.uv_manager import UVManager
 from src.core import resolve_workspace
 
 app = typer.Typer(
-    name="localflow",
-    help="LocalFlow — 工作流自动化工具",
+    name="mozikit",
+    help="Mozikit — 工作流自动化工具",
     no_args_is_help=True,
 )
 
@@ -45,7 +45,7 @@ console = Console()
 def _version_callback(value: bool):
     if value:
         from src.core import __version__
-        console.print(f"localflow v{__version__}")
+        console.print(f"mozikit v{__version__}")
         raise typer.Exit()
 
 
@@ -54,8 +54,8 @@ def main_callback(
     ctx: typer.Context,
     workspace: Optional[str] = typer.Option(
         None, "--workspace", "-w",
-        help="工作空间根目录（默认 ./workflows，可通过环境变量 LOCALFLOW_WORKSPACE 设置）",
-        envvar="LOCALFLOW_WORKSPACE",
+        help="工作空间根目录（默认 ./workflows，可通过环境变量 MOZIKIT_WORKSPACE 设置）",
+        envvar="MOZIKIT_WORKSPACE",
     ),
     version: bool = typer.Option(
         False, "--version", help="显示版本号并退出",
@@ -63,9 +63,9 @@ def main_callback(
         is_eager=True,
     ),
 ):
-    """LocalFlow — 工作流自动化工具"""
+    """Mozikit — 工作流自动化工具"""
     if workspace:
-        os.environ["LOCALFLOW_WORKSPACE"] = workspace
+        os.environ["MOZIKIT_WORKSPACE"] = workspace
 
 logger = get_logger("cli")
 
@@ -232,7 +232,7 @@ def run(
         resolved_path = workflow_path
     else:
         console.print("[red]错误:[/] 请指定工作流路径或使用 --name 指定工作流名称")
-        console.print("  用法: localflow run <path> 或 localflow run --name <name>")
+        console.print("  用法: mozikit run <path> 或 mozikit run --name <name>")
         raise typer.Exit(code=1)
 
     executor = _load_workflow(resolved_path)
@@ -475,7 +475,7 @@ def schedule_add(
     try:
         task_id = mgr.add_task(wf_name, str(path), cron)
         console.print(f"[green]定时任务已添加:[/] {task_id}")
-    except (ValueError, LocalFlowError) as e:
+    except (ValueError, MozikitError) as e:
         console.print(f"[red]错误:[/] {e}")
         raise typer.Exit(code=1)
 
@@ -581,7 +581,7 @@ def schedule_resume(
 def schedule_daemon(
     tick: int = typer.Option(10, "--tick", "-t", help="轮询间隔（秒）"),
     pidfile: Optional[str] = typer.Option(
-        None, "--pidfile", "-p", help="PID 文件路径（默认: /tmp/localflow-scheduler.pid）"
+        None, "--pidfile", "-p", help="PID 文件路径（默认: /tmp/mozikit-scheduler.pid）"
     ),
     logfile: Optional[str] = typer.Option(
         None, "--logfile", "-l", help="日志文件路径（覆盖默认日志目录）"
@@ -612,7 +612,7 @@ def schedule_daemon(
 
     _init(verbose=True)
 
-    pid_path = Path(pidfile or os.path.join(tempfile.gettempdir(), "localflow-scheduler.pid"))
+    pid_path = Path(pidfile or os.path.join(tempfile.gettempdir(), "mozikit-scheduler.pid"))
 
     # 检查已有进程
     if pid_path.exists():
@@ -1052,7 +1052,7 @@ def node_generate(
             console.print(f"  [dim]依赖:[/] {', '.join(result.dependencies)}")
         if result.safety_review and result.safety_review.risk_level == "medium":
             console.print(f"  [yellow]⚠ 低风险:[/] {'; '.join(result.safety_review.all_risks())}")
-    except (ValueError, LocalFlowError) as e:
+    except (ValueError, MozikitError) as e:
         console.print(f"[red]错误:[/] {e}")
         raise typer.Exit(code=1)
 
@@ -1956,7 +1956,7 @@ def sync_push(
 
     svc, _ = _get_sync_service(repo, branch, path)
     if not svc.is_configured():
-        console.print("[red]错误:[/] 同步未配置。请先通过 `localflow config github-login` 登录 GitHub，")
+        console.print("[red]错误:[/] 同步未配置。请先通过 `mozikit config github-login` 登录 GitHub，")
         console.print("  并在设置中配置默认仓库，或使用 --repo 参数指定仓库。")
         raise typer.Exit(code=1)
 
@@ -1983,7 +1983,7 @@ def sync_pull(
 
     svc, _ = _get_sync_service(repo, branch, path)
     if not svc.is_configured():
-        console.print("[red]错误:[/] 同步未配置。请先通过 `localflow config github-login` 登录 GitHub。")
+        console.print("[red]错误:[/] 同步未配置。请先通过 `mozikit config github-login` 登录 GitHub。")
         raise typer.Exit(code=1)
 
     with console.status(f"正在拉取 {workflow_name}..."):
@@ -2108,21 +2108,21 @@ def serve(
         from fastapi.responses import JSONResponse
         import uvicorn
     except ImportError:
-        console.print("[red]错误:[/] 需要 fastapi 和 uvicorn:\n  pip install localflow[serve]\n  或: pip install fastapi uvicorn")
+        console.print("[red]错误:[/] 需要 fastapi 和 uvicorn:\n  pip install mozikit[serve]\n  或: pip install fastapi uvicorn")
         raise typer.Exit(code=1)
 
     _init(verbose=True)
 
     api = FastAPI(
-        title="LocalFlow API",
-        description="LocalFlow 工作流自动化引擎 REST API",
+        title="Mozikit API",
+        description="Mozikit 工作流自动化引擎 REST API",
         version="0.1.0",
     )
 
     @api.get("/health")
     def health():
         """健康检查"""
-        return {"status": "ok", "service": "localflow"}
+        return {"status": "ok", "service": "mozikit"}
 
     @api.get("/workflows")
     def list_workflows():
@@ -2197,7 +2197,7 @@ def serve(
         try:
             task_id = mgr.add_task(name or Path(workflow_path).stem, workflow_path, cron)
             return {"task_id": task_id}
-        except (ValueError, LocalFlowError) as e:
+        except (ValueError, MozikitError) as e:
             raise HTTPException(400, str(e))
 
     @api.delete("/tasks/{task_id}")
@@ -2228,7 +2228,7 @@ def help():
     import click
 
     click_group = get_command(app)
-    ctx = click.Context(click_group, info_name="localflow")
+    ctx = click.Context(click_group, info_name="mozikit")
     console.print(click_group.get_help(ctx))
     raise typer.Exit()
 

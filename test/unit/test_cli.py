@@ -14,7 +14,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from typer.testing import CliRunner
 
 from src.cli import app
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 
 
 class TestCLIAppStructure(unittest.TestCase):
@@ -409,7 +409,7 @@ class TestCLIScheduleCommand(unittest.TestCase):
     def test_schedule_add_invalid_cron(self, mock_sched_cls):
         """schedule add 时无效 cron 应报错"""
         mock_sched = MagicMock()
-        mock_sched.add_task.side_effect = LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, "无效的 Cron 表达式")
+        mock_sched.add_task.side_effect = MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, "无效的 Cron 表达式")
         mock_sched_cls.return_value = mock_sched
 
         with patch("src.cli.Path.exists", return_value=True):
@@ -623,7 +623,7 @@ class TestCLIWorkflowCommand(unittest.TestCase):
         mock_executor.workflow_name = "broken_wf"
         mock_executor.nodes = [MagicMock()]
         mock_executor.edges = []
-        mock_executor._topological_sort.side_effect = LocalFlowError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "循环依赖检测")
+        mock_executor._topological_sort.side_effect = MozikitError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "循环依赖检测")
         mock_load.return_value = mock_executor
 
         result = self.runner.invoke(app, ["workflow", "validate", "/fake/wf.json"])

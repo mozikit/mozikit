@@ -8,10 +8,10 @@ from typing import Any, Dict, List
 from urllib import error, request
 
 from src.core.code_safety import SafetyReviewResult, review_code_safety
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 
 
-class AINodeGenerationError(LocalFlowError):
+class AINodeGenerationError(MozikitError):
     """AI 节点生成异常"""
 
 
@@ -115,7 +115,7 @@ class AINodeGenerationService:
 
     def _build_system_prompt(self) -> str:
         return (
-            "你是 LocalFlow 的节点生成器。"
+            "你是 Mozikit 的节点生成器。"
             "你必须输出一个 JSON 对象，不能输出 Markdown、解释文字或代码块围栏。"
             "JSON 必须包含字段: name, description, category, version, dependencies, config_schema, source_code。"
             "source_code 必须定义函数 def execute(self, input_data): 并返回 dict。"

@@ -19,10 +19,10 @@ if (-not (Test-Path $MsiPath)) {
     throw "MSI not found: $MsiPath"
 }
 
-$pkgId = "localflow-app.LocalFlow"
+$pkgId = "Mozikit.Mozikit"
 $version = $Tag.TrimStart("v")
-$manifestDir = Join-Path "winget-manifests/manifests/l/localflow-app/LocalFlow" $version
-$msiUrl = "https://github.com/$Repository/releases/download/$Tag/localflow-$Tag-x64.msi"
+$manifestDir = Join-Path "winget-manifests/manifests/l/Mozikit/Mozikit" $version
+$msiUrl = "https://github.com/$Repository/releases/download/$Tag/mozikit-$Tag-x64.msi"
 $sha256 = (Get-FileHash -Path $MsiPath -Algorithm SHA256).Hash
 
 New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
@@ -56,14 +56,14 @@ $localeManifest = @"
 PackageIdentifier: $pkgId
 PackageVersion: $version
 PackageLocale: en-US
-Publisher: localflow-app
-PublisherUrl: https://github.com/localflow-app
-PackageName: LocalFlow
+Publisher: Mozikit
+PublisherUrl: https://github.com/mozikit
+PackageName: Mozikit
 PackageUrl: https://github.com/$Repository
 License: Apache-2.0
 LicenseUrl: https://github.com/$Repository/blob/main/LICENSE
 ShortDescription: Visual workflow manager built with PySide6.
-Description: LocalFlow is a visual workflow editor and runner with node-based editing, environment management, and reusable workflow components.
+Description: Mozikit is a visual workflow editor and runner with node-based editing, environment management, and reusable workflow components.
 Tags:
   - workflow
   - automation

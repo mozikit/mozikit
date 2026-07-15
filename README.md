@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="assets/localflow_512.png" alt="LocalFlow" width="120" />
-  <h1>LocalFlow</h1>
+  <img src="assets/mozikit_512.png" alt="Mozikit" width="120" />
+  <h1>Mozikit</h1>
   <p><strong>Python 可视化工作流自动化工具</strong></p>
 </div>
 
@@ -17,7 +17,7 @@
 
 ---
 
-LocalFlow 是一个**现代化的 Python 可视化工作流自动化工具**。它提供直观的拖拽式节点画布，让您像搭积木一样构建自动化流程——不需要写大量胶水代码。无论您是开发者想快速原型化数据管道，还是自动化爱好者想编排日常任务，LocalFlow 都能让您的工作流变得可视、可控、可复现。
+Mozikit 是一个**现代化的 Python 可视化工作流自动化工具**。它提供直观的拖拽式节点画布，让您像搭积木一样构建自动化流程——不需要写大量胶水代码。无论您是开发者想快速原型化数据管道，还是自动化爱好者想编排日常任务，Mozikit 都能让您的工作流变得可视、可控、可复现。
 
 > **设计哲学**：CLI 与 GUI 共享同一套核心引擎——您在画布上编排的工作流，同样可以在终端中通过一行命令执行，甚至通过 REST API 远程触发。
 
@@ -66,7 +66,7 @@ LocalFlow 是一个**现代化的 Python 可视化工作流自动化工具**。�
 ## 🏗️ 项目结构
 
 ```
-localflow/
+Mozikit/
 ├── main.py                       # 应用入口（自动识别 CLI/GUI 模式）
 ├── pyproject.toml                # 项目元数据与构建配置
 ├── requirements.txt              # Python 依赖
@@ -142,8 +142,8 @@ localflow/
 │
 ├── assets/                       # 资源
 │   ├── icons/                    # SVG 图标集
-│   ├── localflow.ico             # Windows 应用图标
-│   └── localflow_512.png         # 高清图标
+│   ├── mozikit.ico               # Windows 应用图标
+│   └── mozikit_512.png           # 高清图标
 │
 ├── workflows/                    # 工作流数据存储
 │   └── example_*/                #   示例工作流
@@ -176,8 +176,8 @@ localflow/
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/localflow-app/localflow.git
-cd localflow
+git clone https://github.com/Mozikit-app/Mozikit.git
+cd Mozikit
 
 # 2. 创建虚拟环境并安装依赖（推荐使用 UV）
 uv venv
@@ -208,17 +208,17 @@ python main.py serve --port 8080
 ```bash
 python build.py              # 交互式构建
 python auto_build.py         # 非交互式自动构建
-# 输出：dist/LocalFlow/LocalFlow.exe
+# 输出：dist/Mozikit/Mozikit.exe
 ```
 
 ---
 
 ## 💻 CLI 命令参考
 
-LocalFlow 提供完整的 CLI（基于 Typer + Rich），**无需启动 GUI** 即可完成所有操作。
+Mozikit 提供完整的 CLI（基于 Typer + Rich），**无需启动 GUI** 即可完成所有操作。
 
 ```
-localflow
+Mozikit
 ├── run <path> | --name <name>     执行工作流
 ├── schedule                       定时任务管理
 │   ├── list                       列出所有任务
@@ -272,16 +272,16 @@ localflow
 
 ```bash
 # 执行工作流并输出 JSON（适合 CI/脚本）
-localflow run workflow.json --json | jq '.duration_ms'
+Mozikit run workflow.json --json | jq '.duration_ms'
 
 # 按名称查找并执行
-localflow run --name my_workflow
+Mozikit run --name my_workflow
 
 # 添加定时任务（工作日早 9 点执行）
-localflow schedule add workflow.json --cron "0 9 * * 1-5" --name "每日报告"
+Mozikit schedule add workflow.json --cron "0 9 * * 1-5" --name "每日报告"
 
 # 守护进程模式运行调度器
-localflow schedule daemon --tick 5 --logfile scheduler.log
+Mozikit schedule daemon --tick 5 --logfile scheduler.log
 
 # 通过 API 执行
 curl -X POST http://localhost:8080/workflows/run \
@@ -438,6 +438,7 @@ limitations under the License.
 ---
 
 <p align="center">
-  <strong>⭐ 如果 LocalFlow 对你有帮助，欢迎点个 Star！</strong><br/>
+  <strong>⭐ 如果 Mozikit 对你有帮助，欢迎点个 Star！</strong><br/>
   有问题或建议？请提交 <a href="#">GitHub Issue</a>
 </p>
+

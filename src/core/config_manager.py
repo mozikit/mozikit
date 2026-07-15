@@ -55,7 +55,7 @@ class ConfigManager:
     }
 
     DEFAULT_NODE_REPO_SETTINGS = {
-        "official_repo_url": "https://github.com/localflow-app/localflow-official-nodes",
+        "official_repo_url": "https://github.com/mozikit/mozikit-official-nodes",
         "auto_check_updates": True,
         "last_check_version": "",
         "last_check_time": "",

@@ -1,4 +1,4 @@
-# LocalFlow 打包测试报告
+# Mozikit 打包测试报告
 
 ## 📊 测试结果
 
@@ -10,21 +10,21 @@
 
 ### 📦 生成文件
 
-1. **单文件版本** (`dist/LocalFlow.exe`)
+1. **单文件版本** (`dist/Mozikit.exe`)
    - 文件大小: 43.3 MB
    - 状态: ✅ 成功生成
    - 特点: 独立可执行文件，双击运行
 
-2. **目录版本** (`dist/LocalFlow_dir/`)
+2. **目录版本** (`dist/Mozikit_dir/`)
    - 状态: ✅ 成功生成
    - 特点: 包含所有依赖文件，启动更快
    - 适用: 调试和开发测试
 
-3. **便携版本** (`dist/LocalFlow_Portable/`)
+3. **便携版本** (`dist/Mozikit_Portable/`)
    - 状态: ✅ 成功生成
    - 内容: 
-     - `LocalFlow/LocalFlow.exe` (主程序)
-     - `启动LocalFlow.bat` (启动脚本)
+     - `Mozikit/Mozikit.exe` (主程序)
+     - `启动Mozikit.bat` (启动脚本)
    - 特点: 专业分发，包含启动脚本
 
 ### 🔧 解决的问题
@@ -48,9 +48,9 @@
 
 | 场景 | 推荐版本 | 原因 |
 |------|----------|------|
-| 用户分发 | `LocalFlow.exe` | 单文件，方便发送 |
-| 开发调试 | `LocalFlow_dir/` | 启动快，便于调试 |
-| 企业部署 | `LocalFlow_Portable/` | 专业，带启动脚本 |
+| 用户分发 | `Mozikit.exe` | 单文件，方便发送 |
+| 开发调试 | `Mozikit_dir/` | 启动快，便于调试 |
+| 企业部署 | `Mozikit_Portable/` | 专业，带启动脚本 |
 
 ### 📝 测试验证
 
@@ -63,4 +63,4 @@
 
 ## 🎉 结论
 
-LocalFlow 的 PyInstaller 打包功能已经完全实现并通过测试。用户可以根据需要选择不同的打包版本，所有版本都能正常工作。
+Mozikit 的 PyInstaller 打包功能已经完全实现并通过测试。用户可以根据需要选择不同的打包版本，所有版本都能正常工作。

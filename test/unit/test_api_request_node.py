@@ -17,7 +17,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 # 从节点源码加载 execute 函数
 _NODE_PY_PATH = os.path.join(
-    PROJECT_ROOT, ".tmp", "localflow-public-nodes", "api_request", "node.py"
+    PROJECT_ROOT, ".tmp", "mozikit-public-nodes", "api_request", "node.py"
 )
 
 
@@ -289,7 +289,7 @@ class TestApiRequestNode(unittest.TestCase):
             "url": "https://api.example.com/data",
             "headers": json.dumps({
                 "Accept": "application/vnd.github+json",
-                "User-Agent": "LocalFlow",
+                "User-Agent": "Mozikit",
             }),
             "timeout": 30,
         })
@@ -301,7 +301,7 @@ class TestApiRequestNode(unittest.TestCase):
         # 用小写比较确保跨 Python 版本兼容
         h = {k.lower(): v for k, v in req.headers.items()}
         self.assertEqual(h.get("accept"), "application/vnd.github+json")
-        self.assertEqual(h.get("user-agent"), "LocalFlow")
+        self.assertEqual(h.get("user-agent"), "Mozikit")
 
 
 if __name__ == "__main__":

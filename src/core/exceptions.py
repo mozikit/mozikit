@@ -1,8 +1,8 @@
 """
-LocalFlow 统一异常体系
+Mozikit 统一异常体系
 
-所有结构化异常继承自 LocalFlowError，携带 ErrorCode 枚举。
-向后兼容：LocalFlowError 是 Exception 的子类，现有 except Exception 块透明兼容。
+所有结构化异常继承自 MozikitError，携带 ErrorCode 枚举。
+向后兼容：MozikitError 是 Exception 的子类，现有 except Exception 块透明兼容。
 """
 from __future__ import annotations
 
@@ -111,8 +111,8 @@ class ErrorCode(str, Enum):
     WEBHOOK_ALREADY_EXISTS = "WEBHOOK_ALREADY_EXISTS"
 
 
-class LocalFlowError(Exception):
-    """LocalFlow 所有结构化异常的基类。
+class MozikitError(Exception):
+    """Mozikit 所有结构化异常的基类。
 
     携带 ErrorCode 和可读消息，兼容现有 except Exception 捕获。
     """
@@ -141,3 +141,7 @@ class LocalFlowError(Exception):
             "error_code": self.code.value,
             "error": self.message,
         }
+
+
+# 向后兼容别名
+LocalFlowError = MozikitError

@@ -37,7 +37,7 @@ logger = get_logger("main_window")
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"LocalFlow v{__version__}")
+        self.setWindowTitle(f"Mozikit v{__version__}")
         self.setGeometry(300, 150, 785, 603)
         self._set_app_icon()
         self.workflow_count = 0
@@ -50,8 +50,8 @@ class MainWindow(QMainWindow):
 
     def _set_app_icon(self):
         """Prefer ICO for Windows shell integration, fallback to PNG for compatibility."""
-        ico_path = self._get_resource_path("assets/localflow.ico")
-        png_path = self._get_resource_path("assets/localflow_64.png")
+        ico_path = self._get_resource_path("assets/mozikit.ico")
+        png_path = self._get_resource_path("assets/mozikit_64.png")
         icon_path = ico_path if Path(ico_path).exists() else png_path
         self.setWindowIcon(QIcon(icon_path))
 
@@ -532,7 +532,7 @@ class MainWindow(QMainWindow):
                 self._tray_icon.show()
                 if not getattr(self, "_tray_notified", False):
                     self._tray_icon.showMessage(
-                        "LocalFlow",
+                        "Mozikit",
                         "工作流正在后台运行中，双击托盘图标恢复窗口",
                         QSystemTrayIcon.Information,
                         3000,
@@ -879,7 +879,7 @@ class MainWindow(QMainWindow):
         """初始化系统托盘图标和菜单"""
         self._tray_icon = QSystemTrayIcon(self)
         self._tray_icon.setIcon(self.windowIcon())
-        self._tray_icon.setToolTip("LocalFlow")
+        self._tray_icon.setToolTip("Mozikit")
 
         tray_menu = TrayMenu(self)
         tray_menu.setStyleSheet(f"""

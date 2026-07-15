@@ -88,7 +88,7 @@ class TestWindow(QWidget):
         layout = QVBoxLayout(self)
         
         # 标题
-        title = QLabel("LocalFlow UI优化测试")
+        title = QLabel("Mozikit UI优化测试")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"""
             font-size: 18px; 
@@ -142,7 +142,7 @@ class TestWindow(QWidget):
 
 def main():
     """主测试函数"""
-    print("🧪 LocalFlow UI优化功能测试")
+    print("🧪 Mozikit UI优化功能测试")
     print("=" * 40)
     
     # 测试主题系统

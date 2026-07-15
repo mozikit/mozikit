@@ -51,7 +51,7 @@ def _check_keyring() -> bool:
 
 # ── keyring 操作 ──
 
-KEYRING_SERVICE = "LocalFlow"
+KEYRING_SERVICE = "Mozikit"
 
 
 def _keyring_get(key: str) -> Optional[str]:
@@ -100,7 +100,7 @@ def _keyring_delete(key: str) -> bool:
 _LOCAL_ENC_MARKER = "$lf2$"  # 前缀标识新加密格式
 
 
-def _derive_key(salt: bytes, info: str = "LocalFlow-credential-key") -> bytes:
+def _derive_key(salt: bytes, info: str = "Mozikit-credential-key") -> bytes:
     """使用 PBKDF2 从机器特定信息派生 32 字节密钥"""
     import getpass
     import socket

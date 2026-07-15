@@ -26,7 +26,7 @@ def _get_log_dir() -> Path:
         appdata = os.environ.get("APPDATA")
         if not appdata:
             appdata = str(Path.home() / "AppData" / "Roaming")
-        log_dir = Path(appdata) / "LocalFlow" / "logs"
+        log_dir = Path(appdata) / "Mozikit" / "logs"
     else:
         log_dir = Path(os.getcwd()) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +59,7 @@ def init_logging(level: int = None) -> Path:
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    log_file = _log_dir / "localflow.log"
+    log_file = _log_dir / "mozikit.log"
     file_handler = TimedRotatingFileHandler(
         str(log_file),
         when="midnight",

@@ -1,4 +1,4 @@
-# LocalFlow 快速开始指南
+# Mozikit 快速开始指南
 
 ## 🚀 5分钟上手
 
@@ -61,7 +61,7 @@ executor.prepare_environment()
 # 创建节点
 greeting = VariableAssignNode("greeting", {
     "variable_name": "message",
-    "value": "Hello, LocalFlow!",
+    "value": "Hello, Mozikit!",
     "value_type": "str"
 })
 
@@ -418,3 +418,4 @@ uv_manager.delete_workflow_env("workflow_name")
 4. 构建自动化流程
 
 **祝你使用愉快！** 🚀
+

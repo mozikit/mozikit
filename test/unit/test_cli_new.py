@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from src.cli import app
 from src.core.code_safety import SafetyReviewResult
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 
 
 def _json_from_output(result) -> dict:
@@ -507,7 +507,7 @@ class TestCLINodeCreateCommand(unittest.TestCase):
         mock_reg.return_value = mock_registry
 
         mock_mgr = MagicMock()
-        mock_mgr.create_node.side_effect = LocalFlowError(ErrorCode.NODE_ALREADY_EXISTS, "duplicate node")
+        mock_mgr.create_node.side_effect = MozikitError(ErrorCode.NODE_ALREADY_EXISTS, "duplicate node")
         mock_custom_mgr_cls.return_value = mock_mgr
 
         result = self.runner.invoke(app, [
@@ -729,7 +729,7 @@ class TestCLINodeImportCommand(unittest.TestCase):
         mock_reg.return_value = mock_registry
 
         mock_mgr = MagicMock()
-        mock_mgr.import_node.side_effect = LocalFlowError(ErrorCode.IMPORT_FAILED, "invalid zip format")
+        mock_mgr.import_node.side_effect = MozikitError(ErrorCode.IMPORT_FAILED, "invalid zip format")
         mock_custom_mgr_cls.return_value = mock_mgr
 
         result = self.runner.invoke(app, [
