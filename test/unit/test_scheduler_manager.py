@@ -69,6 +69,12 @@ class TestSchedulerManager(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
+    @classmethod
+    def tearDownClass(cls):
+        if cls.app and cls.app is QCoreApplication.instance():
+            cls.app.quit()
+            cls.app = None
+
     def setUp(self):
         self.test_root = Path("test/.tmp_scheduler_manager")
         if self.test_root.exists():

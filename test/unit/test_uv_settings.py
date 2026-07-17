@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 from dialogs.settings_dialog import SettingsDialog
 
 @pytest.mark.qt
+@pytest.mark.skip(reason="手动测试——打开对话框等待用户交互，不适合 CI")
 def test_uv_settings():
     """测试 UV 设置对话框"""
     app = QApplication(sys.argv)
