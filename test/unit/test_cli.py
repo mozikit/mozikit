@@ -375,12 +375,13 @@ class TestCLIScheduleCommand(unittest.TestCase):
         mock_sched.add_task.return_value = "new-id-123"
         mock_sched_cls.return_value = mock_sched
 
+        wf_path = "/path/to/workflow.json"
         with patch("src.cli.Path.exists", return_value=True):
             result = self.runner.invoke(
                 app,
                 [
                     "schedule", "add",
-                    "/path/to/workflow.json",
+                    wf_path,
                     "--cron", "*/5 * * * *",
                     "--name", "my-task",
                 ],
@@ -388,7 +389,7 @@ class TestCLIScheduleCommand(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             self.assertIn("new-id-123", result.output)
             mock_sched.add_task.assert_called_once_with(
-                "my-task", "/path/to/workflow.json", "*/5 * * * *"
+                "my-task", str(Path(wf_path)), "*/5 * * * *"
             )
 
     @patch("src.cli.HeadlessScheduler")
@@ -398,15 +399,16 @@ class TestCLIScheduleCommand(unittest.TestCase):
         mock_sched.add_task.return_value = "id-456"
         mock_sched_cls.return_value = mock_sched
 
+        wf_path = "/path/to/my_workflow.json"
         with patch("src.cli.Path.exists", return_value=True):
             with patch("src.cli.Path.stem", "my_workflow"):
                 result = self.runner.invoke(
                     app,
-                    ["schedule", "add", "/path/to/my_workflow.json"],
+                    ["schedule", "add", wf_path],
                 )
                 self.assertEqual(result.exit_code, 0)
                 mock_sched.add_task.assert_called_once_with(
-                    "my_workflow", "/path/to/my_workflow.json", "0 * * * *"
+                    "my_workflow", str(Path(wf_path)), "0 * * * *"
                 )
 
     def test_schedule_add_nonexistent_path(self):

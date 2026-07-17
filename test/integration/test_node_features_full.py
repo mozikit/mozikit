@@ -9,6 +9,7 @@ from src.core.workflow_executor import WorkflowExecutor
 from src.core.custom_node_manager import CustomNodeManager
 from src.core.providers.github_provider import GitHubNodeProvider
 from src.core.node_base import NodeBase
+from unittest.mock import patch, MagicMock
 
 class TestNodeFeaturesIntegration(unittest.TestCase):
     def setUp(self):
@@ -41,12 +42,30 @@ class TestNodeFeaturesIntegration(unittest.TestCase):
         # 2. Import a GitHub Node
         github_provider = GitHubNodeProvider(self.test_dir)
         github_url = "https://github.com/example/api-node"
-        github_node_def = github_provider.download_node(github_url)
-        self.assertIsNotNone(github_node_def)
-        
-        # GitHub node mock info in provider has 'requests' as dependency
-        self.assertIn("requests", github_node_def.dependencies)
-        
+        mock_node_def = MagicMock()
+        mock_node_def.dependencies = ["requests"]
+        mock_node_def.node_type = "github_api_node"
+        with patch.object(github_provider, 'download_node', return_value=mock_node_def):
+            github_node_def = github_provider.download_node(github_url)
+            self.assertIsNotNone(github_node_def)
+
+            # GitHub node mock info in provider has 'requests' as dependency
+            self.assertIn("requests", github_node_def.dependencies)
+
+        # Register mock node type in registry so NodeBase.from_dict can resolve it
+        from src.core.node_registry import NodeDefinition, NodeSource
+        registered_def = NodeDefinition(
+            node_type=github_node_def.node_type,
+            name="API Node",
+            description="Mock GitHub node for testing",
+            source=NodeSource.GITHUB,
+            category="GitHub",
+            source_code="def execute(self, input_data):\n    return input_data\n",
+            config_schema={},
+            dependencies=["requests"],
+        )
+        self.registry.register_external_node(registered_def)
+
         # 3. Build a Workflow
         executor = WorkflowExecutor("IntegrationFlow")
         

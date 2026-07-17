@@ -21,6 +21,10 @@ class TestConfigManagerConcurrency(unittest.TestCase):
         manager_a = ConfigManager(str(self.config_path))
         manager_b = ConfigManager(str(self.config_path))
 
+        # save_config 默认是异步后台线程，替换为同步版本避免竞争
+        manager_b.save_config = manager_b.save_config_sync
+        manager_a.save_config = manager_a.save_config_sync
+
         manager_b.set_ai_settings(
             {
                 "base_url": "https://integrate.api.nvidia.com",
@@ -30,9 +34,6 @@ class TestConfigManagerConcurrency(unittest.TestCase):
                 "temperature": 0.1,
             }
         )
-        # set_ai_settings 内部 save_config 是异步后台线程，
-        # 确保写入完成后再执行后续操作。
-        manager_b.save_config_sync()
 
         manager_a.set_window_geometry(1, 2, 3, 4)
         manager_a.save_config_sync()

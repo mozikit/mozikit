@@ -11,11 +11,10 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer
 from src.main_window import MainWindow
 from src.core.node_base import NodeType
-
-# 设置标准输出为UTF-8
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+import pytest
 
 
+@pytest.mark.skip(reason="需要 GUI 和 window fixture，不适合自动化 CI")
 def test_node_operations(window):
     """测试节点操作"""
     print("\n" + "="*60)
