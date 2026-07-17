@@ -63,6 +63,11 @@ class TestHeadlessSchedulerLifecycle(unittest.TestCase):
 class TestHeadlessSchedulerTaskManagement(unittest.TestCase):
     """定时任务增删改查"""
 
+    def _flush_save(self):
+        """等待异步 save_config 完成，避免 tearDown 时竞争。"""
+        if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'config_manager'):
+            self.scheduler.config_manager.save_config_sync()
+
     def setUp(self):
         self.test_root = Path("test/.tmp_headless_scheduler_tasks")
         if self.test_root.exists():
@@ -76,6 +81,7 @@ class TestHeadlessSchedulerTaskManagement(unittest.TestCase):
 
     def tearDown(self):
         self.scheduler.stop()
+        self._flush_save()
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
 
@@ -194,6 +200,11 @@ class TestHeadlessSchedulerTaskManagement(unittest.TestCase):
 class TestHeadlessSchedulerScheduleCheck(unittest.TestCase):
     """调度轮询逻辑"""
 
+    def _flush_save(self):
+        """等待异步 save_config 完成，避免 tearDown 时竞争。"""
+        if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'config_manager'):
+            self.scheduler.config_manager.save_config_sync()
+
     def setUp(self):
         self.test_root = Path("test/.tmp_headless_scheduler_check")
         if self.test_root.exists():
@@ -208,6 +219,7 @@ class TestHeadlessSchedulerScheduleCheck(unittest.TestCase):
 
     def tearDown(self):
         self.scheduler.stop()
+        self._flush_save()
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
 
@@ -296,6 +308,11 @@ class TestHeadlessSchedulerCallback(unittest.TestCase):
 class TestHeadlessSchedulerRunNow(unittest.TestCase):
     """立即执行"""
 
+    def _flush_save(self):
+        """等待异步 save_config 完成，避免 tearDown 时竞争。"""
+        if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'config_manager'):
+            self.scheduler.config_manager.save_config_sync()
+
     def setUp(self):
         self.test_root = Path("test/.tmp_headless_scheduler_runnow")
         if self.test_root.exists():
@@ -308,6 +325,7 @@ class TestHeadlessSchedulerRunNow(unittest.TestCase):
 
     def tearDown(self):
         self.scheduler.stop()
+        self._flush_save()
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
 
@@ -332,6 +350,11 @@ class TestHeadlessSchedulerRunNow(unittest.TestCase):
 class TestHeadlessSchedulerConcurrency(unittest.TestCase):
     """并发与异常处理"""
 
+    def _flush_save(self):
+        """等待异步 save_config 完成，避免 tearDown 时竞争。"""
+        if hasattr(self, 'scheduler') and hasattr(self.scheduler, 'config_manager'):
+            self.scheduler.config_manager.save_config_sync()
+
     def setUp(self):
         self.test_root = Path("test/.tmp_headless_scheduler_conc")
         if self.test_root.exists():
@@ -345,6 +368,7 @@ class TestHeadlessSchedulerConcurrency(unittest.TestCase):
 
     def tearDown(self):
         self.scheduler.stop()
+        self._flush_save()
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
 
