@@ -73,6 +73,7 @@ class TestDependencyPassing(unittest.TestCase):
         node = MagicMock(spec=NodeBase)
         node.node_type = "custom_csv_processor"
         node.node_id = "node1"
+        node.config = {}
         node.generate_script.return_value = str(workspace / "node1.py")
 
         self.executor.nodes = {"node1": node}
