@@ -15,6 +15,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 sys.path.insert(0, PROJECT_ROOT)
 
 from src.core.config_manager import ConfigManager
+from src.core.exceptions import MozikitError
 from src.core.scheduler_manager import ScheduleEntry, SchedulerManager
 
 
@@ -54,11 +55,11 @@ class TestScheduleEntry(unittest.TestCase):
         self.assertEqual(normalized, "*/15 * * * 1-5")
 
     def test_validate_cron_rejects_invalid_field_count(self):
-        with self.assertRaisesRegex(ValueError, "无效的 Cron 表达式"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron 表达式"):
             ScheduleEntry.validate_cron("0 0 * *")
 
     def test_validate_cron_rejects_invalid_range(self):
-        with self.assertRaisesRegex(ValueError, "无效的 Cron 字段范围"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron 字段范围"):
             ScheduleEntry.validate_cron("0 24 * * *")
 
 
@@ -78,8 +79,14 @@ class TestSchedulerManager(unittest.TestCase):
         self.manager = SchedulerManager(ConfigManager(str(self.config_path)))
         self.manager._scheduler_timer.stop()
 
+    def _flush_save(self):
+        """等待异步 save_config 完成，避免 tearDown 时竞争。"""
+        if hasattr(self, 'manager') and hasattr(self.manager, '_config_manager'):
+            self.manager._config_manager.save_config_sync()
+
     def tearDown(self):
         self.manager.shutdown()
+        self._flush_save()
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
 
@@ -110,7 +117,7 @@ class TestSchedulerManager(unittest.TestCase):
             "demo", "workflows/demo/workflow.json", "0 0 * * *"
         )
 
-        with self.assertRaisesRegex(ValueError, "无效的 Cron 字段范围"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron 字段范围"):
             self.manager.update_task(task_id, cron_expression="61 * * * *")
 
 
