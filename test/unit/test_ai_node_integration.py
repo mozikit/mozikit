@@ -31,6 +31,9 @@ class TestAISettingsAndGeneratedNode(unittest.TestCase):
                 "temperature": 0.4,
             }
         )
+        # set_ai_settings 内部 save_config 是异步（后台线程），
+        # 测试需要同步等待写入完成再读取，否则读取到的是空默认值。
+        manager.save_config_sync()
 
         reloaded = ConfigManager(str(config_path))
         settings = reloaded.get_ai_settings()
