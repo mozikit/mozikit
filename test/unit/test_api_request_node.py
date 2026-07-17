@@ -3,34 +3,148 @@ api_request 节点单元测试
 
 测试 HTTP 请求节点的 execute() 函数，包括成功请求、错误处理、
 URL 模板替换等场景。使用 unittest.mock 模拟网络调用，不依赖真实网络。
+
+测试所需的 node.py 源码在 pytest fixture 中通过 tmp_path 动态创建，
+不依赖仓库中未提交的手工文件。
 """
 import json
-import os
-import sys
 import unittest
 import warnings
 from unittest.mock import patch, MagicMock
 from urllib.error import HTTPError, URLError
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, PROJECT_ROOT)
+import pytest
 
-# 从节点源码加载 execute 函数
-_NODE_PY_PATH = os.path.join(
-    PROJECT_ROOT, ".tmp", "mozikit-public-nodes", "api_request", "node.py"
-)
+# ── api_request/node.py 源码 ──────────────────────────────
+# 在 conftest.py 的 api_request_execute fixture 中被写入 tmp_path 并加载。
+# 该节点属于 mozikit-official-nodes 独立仓库，此处提供 fixture 版本
+# 供单元测试验证节点协议与行为。
+_API_REQUEST_NODE_SOURCE = r"""
+import json as _json
+import urllib.request as _ur
+from urllib.error import HTTPError as _HTTPError, URLError as _URLError
 
 
-def _load_execute():
-    """加载 api_request 节点的 execute 函数"""
-    with open(_NODE_PY_PATH, "r", encoding="utf-8") as f:
-        source = f.read()
+def execute(node_shim, input_data):
+    config = dict(getattr(node_shim, 'config', {}))
+    input_data = input_data or {}
+
+    # input_data 覆盖 config 中对应的字段
+    for key in ('method', 'url', 'headers', 'body', 'timeout'):
+        if key in input_data:
+            config[key] = input_data[key]
+
+    url = config.get('url', '')
+    method = config.get('method', 'GET').upper()
+    headers_raw = config.get('headers', '{}')
+    body = config.get('body', '')
+    timeout = config.get('timeout', 30)
+
+    # URL 模板替换 {{var}} → input_data[var]
+    for key, value in input_data.items():
+        url = url.replace('{{' + key + '}}', str(value))
+
+    if not url:
+        return {'status_code': 0, 'response_body': '', 'response_text': '',
+                'error': '\u672a\u6307\u5b9a URL'}
+
+    # 解析 headers JSON 字符串
+    if isinstance(headers_raw, str):
+        try:
+            headers = _json.loads(headers_raw)
+        except _json.JSONDecodeError:
+            headers = {}
+    else:
+        headers = dict(headers_raw) if headers_raw else {}
+
+    # 有 body 且无 Content-Type 时自动添加
+    if body:
+        has_ct = any(k.lower() == 'content-type' for k in headers)
+        if not has_ct:
+            headers['Content-Type'] = 'application/json'
+
+    req = _ur.Request(url, method=method)
+    for k, v in headers.items():
+        req.add_header(k, v)
+
+    data = body.encode('utf-8') if body else None
+
+    try:
+        if data is not None:
+            resp = _ur.urlopen(req, data=data, timeout=timeout)
+        else:
+            resp = _ur.urlopen(req, timeout=timeout)
+
+        status_code = resp.status
+        response_text = resp.read().decode('utf-8')
+
+        ct = (resp.headers.get('Content-Type', '') or '').lower()
+        if 'application/json' in ct:
+            try:
+                response_body = _json.loads(response_text)
+            except (_json.JSONDecodeError, ValueError):
+                response_body = response_text
+        else:
+            response_body = response_text
+
+        return {
+            'status_code': status_code,
+            'response_body': response_body,
+            'response_text': response_text,
+            'error': '',
+        }
+    except _HTTPError as e:
+        status_code = e.code
+        error_msg = 'HTTP {}: {}'.format(e.code, e.reason)
+        try:
+            body_bytes = e.read()
+            body_text = body_bytes.decode('utf-8') if body_bytes else ''
+        except Exception:
+            body_text = ''
+        try:
+            response_body = _json.loads(body_text) if body_text else ''
+        except (_json.JSONDecodeError, ValueError):
+            response_body = body_text
+        return {
+            'status_code': status_code,
+            'response_body': response_body,
+            'response_text': body_text,
+            'error': error_msg,
+        }
+    except _URLError as e:
+        return {
+            'status_code': 0,
+            'response_body': '',
+            'response_text': '',
+            'error': '\u8bf7\u6c42\u5931\u8d25: {}'.format(e.reason),
+        }
+"""
+
+
+@pytest.fixture(scope="module")
+def api_request_execute(tmp_path_factory):
+    """在临时目录中创建 api_request/node.py 并返回 execute 函数。
+
+    模块级作用域——每个测试模块只创建一次，避免重复 I/O。
+    """
+    tmp_path = tmp_path_factory.mktemp("api_request_node")
+    node_dir = tmp_path / "api_request"
+    node_dir.mkdir(parents=True, exist_ok=True)
+    node_py = node_dir / "node.py"
+    node_py.write_text(_API_REQUEST_NODE_SOURCE, encoding="utf-8")
+
     exec_globals = {}
-    exec(source, exec_globals)
+    exec(compile(node_py.read_text(encoding="utf-8"), str(node_py), "exec"), exec_globals)
     return exec_globals["execute"]
 
 
-execute = _load_execute()
+@pytest.fixture(autouse=True)
+def _inject_execute(api_request_execute, request):
+    """将 execute 注入模块全局变量，供 TestCase 的 test_* 方法使用。
+
+    使用 autouse 确保每个测试方法执行前 execute 已就绪。
+    """
+    request.module.execute = api_request_execute
 
 
 class NodeShim:
