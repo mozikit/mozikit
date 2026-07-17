@@ -7,6 +7,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import tempfile
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, PROJECT_ROOT)
@@ -471,17 +472,22 @@ class TestCLIWorkflowScenario(unittest.TestCase):
 
     def test_workflow_list_with_workflow_scanner(self):
         """场景：列出工作流（使用真实文件系统）"""
-        with self.runner.isolated_filesystem():
-            wf_dir = Path("workflows") / "test_scenario"
-            wf_dir.mkdir(parents=True)
-            (wf_dir / "workflow.json").write_text(json.dumps({
-                "workflow_name": "scenario_test",
-                "nodes": [{"id": "n1", "type": "http_request"}],
-                "edges": [],
-            }))
-            r = self.runner.invoke(app, ["workflow", "list"])
-            self.assertEqual(r.exit_code, 0)
-            self.assertIn("scenario_test", r.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                wf_dir = Path("workflows") / "test_scenario"
+                wf_dir.mkdir(parents=True)
+                (wf_dir / "workflow.json").write_text(json.dumps({
+                    "workflow_name": "scenario_test",
+                    "nodes": [{"id": "n1", "type": "http_request"}],
+                    "edges": [],
+                }))
+                r = self.runner.invoke(app, ["workflow", "list"])
+                self.assertEqual(r.exit_code, 0)
+                self.assertIn("scenario_test", r.output)
+            finally:
+                os.chdir(old_cwd)
 
 
 class TestCLIWorkflowEditScenario(unittest.TestCase):
@@ -492,58 +498,78 @@ class TestCLIWorkflowEditScenario(unittest.TestCase):
 
     def test_workflow_create_then_list_json(self):
         """场景：创建工作流 → list --json 可解析"""
-        with self.runner.isolated_filesystem():
-            # 创建
-            r1 = self.runner.invoke(app, ["workflow", "create", "edit_test"])
-            self.assertEqual(r1.exit_code, 0)
-            self.assertIn("已创建", r1.output)
-            self.assertTrue(Path("workflows/edit_test/workflow.json").exists())
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                # 创建
+                r1 = self.runner.invoke(app, ["workflow", "create", "edit_test"])
+                self.assertEqual(r1.exit_code, 0)
+                self.assertIn("已创建", r1.output)
+                self.assertTrue(Path("workflows/edit_test/workflow.json").exists())
 
-            # list --json
-            r2 = self.runner.invoke(app, ["workflow", "list", "--json"])
-            self.assertEqual(r2.exit_code, 0)
-            data = json.loads(r2.output)
-            self.assertIsInstance(data, list)
-            self.assertEqual(len(data), 1)
-            self.assertEqual(data[0]["name"], "edit_test")
+                # list --json
+                r2 = self.runner.invoke(app, ["workflow", "list", "--json"])
+                self.assertEqual(r2.exit_code, 0)
+                data = json.loads(r2.output)
+                self.assertIsInstance(data, list)
+                self.assertEqual(len(data), 1)
+                self.assertEqual(data[0]["name"], "edit_test")
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_copy_workflow(self):
         """场景：创建工作流 → 复制 → 两个独立存在"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "original_wf"])
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "original_wf"])
 
-            r_copy = self.runner.invoke(app, [
-                "workflow", "copy",
-                "workflows/original_wf/workflow.json",
-                "copied_wf",
-            ])
-            self.assertEqual(r_copy.exit_code, 0)
-            self.assertIn("已复制", r_copy.output)
-            # 原始和副本都应存在
-            self.assertTrue(Path("workflows/original_wf/workflow.json").exists())
-            self.assertTrue(Path("workflows/copied_wf/workflow.json").exists())
+                r_copy = self.runner.invoke(app, [
+                    "workflow", "copy",
+                    "workflows/original_wf/workflow.json",
+                    "copied_wf",
+                ])
+                self.assertEqual(r_copy.exit_code, 0)
+                self.assertIn("已复制", r_copy.output)
+                # 原始和副本都应存在
+                self.assertTrue(Path("workflows/original_wf/workflow.json").exists())
+                self.assertTrue(Path("workflows/copied_wf/workflow.json").exists())
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_copy_duplicate_name(self):
         """复制到已存在的名称应报错"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "src"])
-            self.runner.invoke(app, ["workflow", "create", "dst"])
-            r = self.runner.invoke(app, [
-                "workflow", "copy",
-                "workflows/src/workflow.json",
-                "dst",
-            ])
-            self.assertNotEqual(r.exit_code, 0)
-            self.assertIn("已存在", r.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "src"])
+                self.runner.invoke(app, ["workflow", "create", "dst"])
+                r = self.runner.invoke(app, [
+                    "workflow", "copy",
+                    "workflows/src/workflow.json",
+                    "dst",
+                ])
+                self.assertNotEqual(r.exit_code, 0)
+                self.assertIn("已存在", r.output)
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_run_by_name(self):
         """场景：创建工作流 → run --name 执行（空工作流应成功执行）"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "run_by_name"])
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "run_by_name"])
 
-            # run --name 应找到工作流并加载执行（空工作流执行也成功）
-            r = self.runner.invoke(app, ["run", "--name", "run_by_name"])
-            self.assertEqual(r.exit_code, 0)
+                # run --name 应找到工作流并加载执行（空工作流执行也成功）
+                r = self.runner.invoke(app, ["run", "--name", "run_by_name"])
+                self.assertEqual(r.exit_code, 0)
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_run_by_name_not_found(self):
         """run --name 不存在的名称应报错"""
