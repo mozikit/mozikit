@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -937,11 +938,16 @@ class TestCLINodeCheckSafetyCommand(unittest.TestCase):
         )
         mock_review.return_value = mock_result
 
-        with self.runner.isolated_filesystem():
-            Path("safe_script.py").write_text("print('hello world')")
-            result = self.runner.invoke(app, [
-                "node", "check-safety", "safe_script.py",
-            ])
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                Path("safe_script.py").write_text("print('hello world')")
+                result = self.runner.invoke(app, [
+                    "node", "check-safety", "safe_script.py",
+                ])
+            finally:
+                os.chdir(old_cwd)
         self.assertEqual(result.exit_code, 0)
         self.assertTrue("低风险" in result.output or "未检测到" in result.output)
 

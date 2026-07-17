@@ -4,6 +4,7 @@ CLI 命令单元测试 — 使用 Typer CliRunner
 import json
 import os
 import re
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -186,19 +187,24 @@ class TestCLIRunCommand(unittest.TestCase):
 
         with patch("src.cli.Path.exists", return_value=True):
             with patch("src.cli.Path.is_file", return_value=True):
-                with self.runner.isolated_filesystem():
-                    result = self.runner.invoke(
-                        app,
-                        [
-                            "run", "/fake/workflow.json",
-                            "--output", "output.json",
-                        ],
-                    )
-                    self.assertEqual(result.exit_code, 0)
-                    self.assertTrue(Path("output.json").exists())
-                    with open("output.json") as f:
-                        data = json.load(f)
-                    self.assertEqual(data["success"], True)
+                with tempfile.TemporaryDirectory() as _tmpdir:
+                    old_cwd = os.getcwd()
+                    os.chdir(_tmpdir)
+                    try:
+                        result = self.runner.invoke(
+                            app,
+                            [
+                                "run", "/fake/workflow.json",
+                                "--output", "output.json",
+                            ],
+                        )
+                        self.assertEqual(result.exit_code, 0)
+                        self.assertTrue(Path("output.json").exists())
+                        with open("output.json") as f:
+                            data = json.load(f)
+                        self.assertEqual(data["success"], True)
+                    finally:
+                        os.chdir(old_cwd)
 
     def test_run_execution_failure(self, mock_load):
         """工作流执行失败场景"""
@@ -639,21 +645,31 @@ class TestCLIWorkflowCommand(unittest.TestCase):
 
     def test_workflow_list_corrupted_json(self):
         """workflow list 遇到损坏的 JSON 应跳过"""
-        with self.runner.isolated_filesystem():
-            wf_dir = Path("workflows")
-            wf_dir.mkdir()
-            (wf_dir / "workflow.json").write_text("{bad json}")
-            result = self.runner.invoke(app, ["workflow", "list"])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("已保存的工作流", result.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                wf_dir = Path("workflows")
+                wf_dir.mkdir()
+                (wf_dir / "workflow.json").write_text("{bad json}")
+                result = self.runner.invoke(app, ["workflow", "list"])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("已保存的工作流", result.output)
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_list_empty_dir(self):
         """workflows 目录存在但为空"""
-        with self.runner.isolated_filesystem():
-            Path("workflows").mkdir()
-            result = self.runner.invoke(app, ["workflow", "list"])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("没有找到", result.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                Path("workflows").mkdir()
+                result = self.runner.invoke(app, ["workflow", "list"])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("没有找到", result.output)
+            finally:
+                os.chdir(old_cwd)
 
 
 class TestCLIEnvCommand(unittest.TestCase):
