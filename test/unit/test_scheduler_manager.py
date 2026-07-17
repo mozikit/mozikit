@@ -86,6 +86,10 @@ class TestSchedulerManager(unittest.TestCase):
 
     def tearDown(self):
         self.manager.shutdown()
+        # 多次调用 flush 确保所有后台异步写入完成
+        self._flush_save()
+        import time
+        time.sleep(0.1)
         self._flush_save()
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
