@@ -32,7 +32,7 @@ class TestCLIAppStructure(unittest.TestCase):
     def test_run_help_shows_options(self):
         result = self.runner.invoke(app, ["run", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("WORKFLOW_PATH", result.output)
+        self.assertIn("workflow_path", result.output)
         self.assertIn("--input", result.output)
         self.assertIn("--output", result.output)
         self.assertIn("--verbose", result.output)
