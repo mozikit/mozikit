@@ -321,12 +321,16 @@ class NodeVersionManager:
                 try:
                     _winapi.CreateJunction(str(version_dir), str(current_link))
                 except Exception:
-                    # 回退到文本文件
+                    # CreateJunction 失败时可能已创建空目录，清理后回退文本文件
+                    if current_link.is_dir():
+                        current_link.rmdir()
                     current_link.write_text(version, encoding="utf-8")
             else:
                 current_link.symlink_to(version_dir, target_is_directory=True)
         except Exception:
-            # 回退到文本文件
+            # 回退到文本文件（清理可能的半成品目录）
+            if current_link.exists() and current_link.is_dir():
+                shutil.rmtree(current_link, ignore_errors=True)
             current_link.write_text(version, encoding="utf-8")
 
         # 更新清单
