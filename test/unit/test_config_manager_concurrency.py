@@ -30,9 +30,12 @@ class TestConfigManagerConcurrency(unittest.TestCase):
                 "temperature": 0.1,
             }
         )
+        # set_ai_settings 内部 save_config 是异步后台线程，
+        # 确保写入完成后再执行后续操作。
+        manager_b.save_config_sync()
 
         manager_a.set_window_geometry(1, 2, 3, 4)
-        manager_a.save_config()
+        manager_a.save_config_sync()
 
         reloaded = ConfigManager(str(self.config_path))
         settings = reloaded.get_ai_settings()
