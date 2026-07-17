@@ -11,6 +11,7 @@ from src.core.playwright_node_utils import (
 from src.core.workflow_runner import handle_run_node
 
 
+@unittest.skip("需要 mozikit-official-nodes 仓库中的 playwright_script 节点定义，CI 中不可用")
 class TestPlaywrightNodeIntegration(unittest.TestCase):
     def setUp(self):
         self.test_root = Path("test/.tmp_playwright_nodes")
