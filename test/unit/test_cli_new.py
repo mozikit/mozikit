@@ -961,11 +961,16 @@ class TestCLINodeCheckSafetyCommand(unittest.TestCase):
         )
         mock_review.return_value = mock_result
 
-        with self.runner.isolated_filesystem():
-            Path("unsafe_script.py").write_text("import os; os.system('rm -rf /')")
-            result = self.runner.invoke(app, [
-                "node", "check-safety", "unsafe_script.py",
-            ])
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                Path("unsafe_script.py").write_text("import os; os.system('rm -rf /')")
+                result = self.runner.invoke(app, [
+                    "node", "check-safety", "unsafe_script.py",
+                ])
+            finally:
+                os.chdir(old_cwd)
         self.assertEqual(result.exit_code, 0)
         self.assertIn("高风险", result.output)
 
@@ -987,11 +992,16 @@ class TestCLINodeCheckSafetyCommand(unittest.TestCase):
         )
         mock_review.return_value = mock_result
 
-        with self.runner.isolated_filesystem():
-            Path("medium_script.py").write_text("open('/tmp/x', 'w')")
-            result = self.runner.invoke(app, [
-                "node", "check-safety", "medium_script.py",
-            ])
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                Path("medium_script.py").write_text("open('/tmp/x', 'w')")
+                result = self.runner.invoke(app, [
+                    "node", "check-safety", "medium_script.py",
+                ])
+            finally:
+                os.chdir(old_cwd)
         self.assertEqual(result.exit_code, 0)
         self.assertIn("中风险", result.output)
 
@@ -1500,33 +1510,48 @@ class TestCLIWorkflowEditCommands(unittest.TestCase):
 
     def test_workflow_create_success(self):
         """创建空工作流应成功"""
-        with self.runner.isolated_filesystem():
-            result = self.runner.invoke(app, ["workflow", "create", "test_wf"])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("已创建", result.output)
-            self.assertTrue(Path("workflows/test_wf/workflow.json").exists())
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                result = self.runner.invoke(app, ["workflow", "create", "test_wf"])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("已创建", result.output)
+                self.assertTrue(Path("workflows/test_wf/workflow.json").exists())
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_create_duplicate(self):
         """重复创建工作流应报错"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "dup_wf"])
-            result = self.runner.invoke(app, ["workflow", "create", "dup_wf"])
-            self.assertNotEqual(result.exit_code, 0)
-            self.assertIn("已存在", result.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "dup_wf"])
+                result = self.runner.invoke(app, ["workflow", "create", "dup_wf"])
+                self.assertNotEqual(result.exit_code, 0)
+                self.assertIn("已存在", result.output)
+            finally:
+                os.chdir(old_cwd)
 
     # ── delete ─────────────────────────────────────
 
     def test_workflow_delete_success(self):
         """删除工作流应成功"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "del_wf"])
-            wf_path = "workflows/del_wf/workflow.json"
-            self.assertTrue(Path(wf_path).exists())
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "del_wf"])
+                wf_path = "workflows/del_wf/workflow.json"
+                self.assertTrue(Path(wf_path).exists())
 
-            result = self.runner.invoke(app, ["workflow", "delete", wf_path])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("已删除", result.output)
-            self.assertFalse(Path("workflows/del_wf").exists())
+                result = self.runner.invoke(app, ["workflow", "delete", wf_path])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("已删除", result.output)
+                self.assertFalse(Path("workflows/del_wf").exists())
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_delete_nonexistent(self):
         """删除不存在的工作流应报错"""
@@ -1538,26 +1563,36 @@ class TestCLIWorkflowEditCommands(unittest.TestCase):
 
     def test_workflow_rename_success(self):
         """重命名工作流应成功"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "old_name"])
-            old_path = "workflows/old_name/workflow.json"
-            self.assertTrue(Path(old_path).exists())
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "old_name"])
+                old_path = "workflows/old_name/workflow.json"
+                self.assertTrue(Path(old_path).exists())
 
-            result = self.runner.invoke(app, ["workflow", "rename", old_path, "new_name"])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("已重命名", result.output)
-            self.assertFalse(Path("workflows/old_name").exists())
-            self.assertTrue(Path("workflows/new_name/workflow.json").exists())
+                result = self.runner.invoke(app, ["workflow", "rename", old_path, "new_name"])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("已重命名", result.output)
+                self.assertFalse(Path("workflows/old_name").exists())
+                self.assertTrue(Path("workflows/new_name/workflow.json").exists())
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_rename_target_exists(self):
         """重命名到已存在的名称应报错"""
-        with self.runner.isolated_filesystem():
-            self.runner.invoke(app, ["workflow", "create", "src"])
-            self.runner.invoke(app, ["workflow", "create", "dst"])
-            result = self.runner.invoke(app, ["workflow", "rename",
-                                               "workflows/src/workflow.json", "dst"])
-            self.assertNotEqual(result.exit_code, 0)
-            self.assertIn("已存在", result.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                self.runner.invoke(app, ["workflow", "create", "src"])
+                self.runner.invoke(app, ["workflow", "create", "dst"])
+                result = self.runner.invoke(app, ["workflow", "rename",
+                                                   "workflows/src/workflow.json", "dst"])
+                self.assertNotEqual(result.exit_code, 0)
+                self.assertIn("已存在", result.output)
+            finally:
+                os.chdir(old_cwd)
 
     # ── add-node ───────────────────────────────────
 
