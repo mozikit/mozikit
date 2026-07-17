@@ -73,14 +73,15 @@ class TestGitHubProvider(unittest.TestCase):
         self.assertEqual(node_def.repo_url, url)
         self.assertEqual(node_def.node_type, "public_demo")
 
-        node_path = self.tmp_dir / "external_nodes" / "github" / "test_owner" / "test_repo" / "public_demo"
-        self.assertTrue((node_path / "node.json").exists())
-        self.assertTrue((node_path / "node.py").exists())
+        # node.json/node.py 存放在 versions/<version>/ 子目录下
+        version_dir = self.tmp_dir / "external_nodes" / "github" / "public_demo" / "versions" / node_def.version
+        self.assertTrue((version_dir / "node.json").exists())
+        self.assertTrue((version_dir / "node.py").exists())
         self.assertIn(node_def.node_type, self.registry._nodes)
 
         success = self.provider.delete_node(node_def.node_type)
         self.assertTrue(success)
-        self.assertFalse(node_path.exists())
+        self.assertFalse(version_dir.parent.parent.exists())
         self.assertNotIn(node_def.node_type, self.registry._nodes)
 
 if __name__ == '__main__':
