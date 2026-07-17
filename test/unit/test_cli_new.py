@@ -37,6 +37,11 @@ def _json_from_output(result) -> dict:
 class TestCLIAppStructure(unittest.TestCase):
     """CLI 应用结构 — 验证新增命令"""
 
+    @staticmethod
+    def _clean_output(output: str) -> str:
+        """去除 rich 添加的 ANSI 转义码，便于字符串匹配。"""
+        return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+
     def setUp(self):
         self.runner = CliRunner()
 
@@ -50,8 +55,9 @@ class TestCLIAppStructure(unittest.TestCase):
         """run --help 应包含 --json / -j 选项"""
         result = self.runner.invoke(app, ["run", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("--json", result.output)
-        self.assertIn("-j", result.output)
+        output = self._clean_output(result.output)
+        self.assertIn("--json", output)
+        self.assertIn("-j", output)
 
     def test_schedule_help_shows_update_command(self):
         """schedule --help 应包含 update"""

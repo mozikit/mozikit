@@ -3,6 +3,7 @@ CLI 命令单元测试 — 使用 Typer CliRunner
 """
 import json
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -20,6 +21,11 @@ from src.core.exceptions import ErrorCode, MozikitError
 class TestCLIAppStructure(unittest.TestCase):
     """CLI 应用结构"""
 
+    @staticmethod
+    def _clean_output(output: str) -> str:
+        """去除 rich 添加的 ANSI 转义码，便于字符串匹配。"""
+        return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+
     def setUp(self):
         self.runner = CliRunner()
 
@@ -32,10 +38,11 @@ class TestCLIAppStructure(unittest.TestCase):
     def test_run_help_shows_options(self):
         result = self.runner.invoke(app, ["run", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("workflow_path", result.output)
-        self.assertIn("--input", result.output)
-        self.assertIn("--output", result.output)
-        self.assertIn("--verbose", result.output)
+        output = self._clean_output(result.output)
+        self.assertIn("workflow_path", output)
+        self.assertIn("--input", output)
+        self.assertIn("--output", output)
+        self.assertIn("--verbose", output)
 
     def test_schedule_help_shows_commands(self):
         result = self.runner.invoke(app, ["schedule", "--help"])
