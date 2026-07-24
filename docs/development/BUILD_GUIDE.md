@@ -1,6 +1,6 @@
-# LocalFlow 打包指南
+# Mozikit 打包指南
 
-本指南介绍如何将 LocalFlow 项目打包为可执行文件。
+本指南介绍如何将 Mozikit 项目打包为可执行文件。
 
 ## 🎉 打包状态：已完成
 
@@ -46,10 +46,10 @@ python quick_build.py
 pip install pyinstaller
 
 # 基础打包
-pyinstaller --name=LocalFlow --windowed --add-data="assets;assets" main.py
+pyinstaller --name=Mozikit --windowed --add-data="assets;assets" main.py
 
 # 包含图标的打包
-pyinstaller --name=LocalFlow --windowed --icon=assets/localflow_64.png --add-data="assets;assets" main.py
+pyinstaller --name=Mozikit --windowed --icon=assets/Mozikit_64.png --add-data="assets;assets" main.py
 ```
 
 ## 输出文件说明
@@ -57,13 +57,13 @@ pyinstaller --name=LocalFlow --windowed --icon=assets/localflow_64.png --add-dat
 打包完成后，会在 `dist/` 目录下生成以下文件：
 
 ### 🎯 主要输出
-- **`LocalFlow.exe`** - 单文件版本，适合分发
-- **`LocalFlow_dir/`** - 目录版本，启动更快，适合调试
+- **`Mozikit.exe`** - 单文件版本，适合分发
+- **`Mozikit_dir/`** - 目录版本，启动更快，适合调试
 
 ### 📦 便携版本 (仅完整打包)
-- **`LocalFlow_Portable/`** - 包含启动脚本的便携版本
-  - Windows: `启动LocalFlow.bat`
-  - Linux/Mac: `start_localflow.sh`
+- **`Mozikit_Portable/`** - 包含启动脚本的便携版本
+  - Windows: `启动Mozikit.bat`
+  - Linux/Mac: `start_Mozikit.sh`
 
 ## 常见问题
 
@@ -77,7 +77,7 @@ pyinstaller --name=LocalFlow --windowed --icon=assets/localflow_64.png --add-dat
 ### 2. 运行时错误
 
 如果打包后运行出错：
-1. 先测试目录版本 (`LocalFlow_dir/`)
+1. 先测试目录版本 (`Mozikit_dir/`)
 2. 检查控制台输出（临时移除 `--windowed` 参数）
 3. 添加缺失的模块到 `hiddenimports`
 
@@ -87,7 +87,7 @@ pyinstaller --name=LocalFlow --windowed --icon=assets/localflow_64.png --add-dat
 ```python
 # 在 spec 文件中
 added_files = [
-    ('assets/localflow_64.png', 'assets'),
+    ('assets/Mozikit_64.png', 'assets'),
     ('assets/icons', 'assets/icons'),
 ]
 ```
@@ -112,13 +112,13 @@ PyInstaller 在 Windows 上需要：
 **解决方案：**
 ```python
 # 打包脚本会自动检查和安装 Pillow
-# 或优先使用 ICO 格式：assets/localflow.ico
+# 或优先使用 ICO 格式：assets/Mozikit.ico
 ```
 
 ## 自定义配置
 
 ### 修改图标
-替换 `assets/localflow_64.png` 为你的图标文件
+替换 `assets/Mozikit_64.png` 为你的图标文件
 
 ### 添加额外文件
 在打包脚本中修改 `added_files` 列表：
@@ -145,11 +145,11 @@ hiddenimports = [
 ## 分发建议
 
 ### Windows 用户
-- 推荐使用单文件版本 `LocalFlow.exe`
+- 推荐使用单文件版本 `Mozikit.exe`
 - 可直接发送给其他用户使用
 
 ### 开发/测试
-- 推荐使用目录版本 `LocalFlow_dir/`
+- 推荐使用目录版本 `Mozikit_dir/`
 - 启动更快，便于调试
 
 ### 企业分发

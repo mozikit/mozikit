@@ -714,7 +714,7 @@ class WorkflowTabWidget(QWidget):
             )
             if not self.main_window._has_running_workflows():
                 self.main_window._tray_icon.showMessage(
-                    "LocalFlow",
+                    "Mozikit",
                     "所有工作流已执行完毕，双击托盘图标恢复窗口",
                     QSystemTrayIcon.Information,
                     5000,

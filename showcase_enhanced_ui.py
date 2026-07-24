@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-LocalFlow UI 优化展示脚本
+Mozikit UI 优化展示脚本
 此脚本展示了前端UI优化的各个方面
 """
 
@@ -25,7 +25,7 @@ class OptimizationShowcase(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LocalFlow UI 优化展示")
+        self.setWindowTitle("Mozikit UI 优化展示")
         self.setGeometry(100, 100, 800, 600)
         
         self._setup_ui()
@@ -39,7 +39,7 @@ class OptimizationShowcase(QMainWindow):
         layout = QVBoxLayout(central_widget)
         
         # 标题
-        title = QLabel("🎉 LocalFlow 前端优化成果展示")
+        title = QLabel("🎉 Mozikit 前端优化成果展示")
         title.setAlignment(Qt.AlignCenter)
         title_font = QFont("Segoe UI", 20, QFont.Bold)
         title.setFont(title_font)
@@ -154,7 +154,7 @@ def main():
     showcase = OptimizationShowcase()
     showcase.show()
     
-    print("🎉 LocalFlow UI 优化展示启动成功！")
+    print("🎉 Mozikit UI 优化展示启动成功！")
     print("\n优化内容包括：")
     print("  • 主题系统增强")
     print("  • 节点图形改进") 

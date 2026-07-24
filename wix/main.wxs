@@ -7,9 +7,9 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product
     Id="*"
-    Name="LocalFlow"
+    Name="Mozikit"
     UpgradeCode="F37F90D3-0D35-4F24-8B0F-521F996F4B8C"
-    Manufacturer="localflow-app"
+    Manufacturer="Mozikit"
     Language="1033"
     Codepage="1252"
     Version="__PRODUCT_VERSION__">
@@ -18,7 +18,7 @@
       InstallerVersion="500"
       Compressed="yes"
       InstallScope="perMachine"
-      Manufacturer="localflow-app"
+      Manufacturer="Mozikit"
       Description="Visual workflow manager built with PySide6."
       Languages="1033" />
 
@@ -30,15 +30,15 @@
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="$(var.PlatformProgramFilesFolder)">
-        <Directory Id="INSTALLFOLDER" Name="LocalFlow" />
+        <Directory Id="INSTALLFOLDER" Name="Mozikit" />
       </Directory>
       <Directory Id="ProgramMenuFolder">
-        <Directory Id="ApplicationProgramsFolder" Name="LocalFlow" />
+        <Directory Id="ApplicationProgramsFolder" Name="Mozikit" />
       </Directory>
     </Directory>
 
-    <Feature Id="MainFeature" Title="LocalFlow" Level="1" ConfigurableDirectory="INSTALLFOLDER">
-      <ComponentGroupRef Id="LocalFlowFiles" />
+    <Feature Id="MainFeature" Title="Mozikit" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="MozikitFiles" />
       <ComponentRef Id="ApplicationShortcuts" />
     </Feature>
 
@@ -46,19 +46,19 @@
       <Component Id="ApplicationShortcuts" Guid="A67F526E-7C7D-420B-8A10-1A2C6A247CB3">
         <Shortcut
           Id="StartMenuShortcut"
-          Name="LocalFlow"
-          Description="Launch LocalFlow"
-          Target="[INSTALLFOLDER]LocalFlow.exe"
+          Name="Mozikit"
+          Description="Launch Mozikit"
+          Target="[INSTALLFOLDER]Mozikit.exe"
           WorkingDirectory="INSTALLFOLDER"
-          Icon="LocalFlowIcon"
+          Icon="MozikitIcon"
           IconIndex="0" />
         <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
-        <RegistryValue Root="HKCU" Key="Software\localflow-app\LocalFlow" Name="HasStartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\Mozikit" Name="HasStartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </DirectoryRef>
 
-    <Property Id="ARPPRODUCTICON" Value="LocalFlowIcon" />
-    <Icon Id="LocalFlowIcon" SourceFile="localflow.ico" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/localflow-app/localflow" />
+    <Property Id="ARPPRODUCTICON" Value="MozikitIcon" />
+    <Icon Id="MozikitIcon" SourceFile="mozikit.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/mozikit/mozikit" />
   </Product>
 </Wix>

@@ -71,8 +71,8 @@ jobs:
             print('[INFO] official_nodes/ not found, creating empty placeholder')
             src.mkdir(parents=True, exist_ok=True)
             (src / 'manifest.json').write_text(json.dumps({
-                'repo_name': 'localflow-official-nodes',
-                'repo_url': 'https://github.com/localflow-app/localflow-official-nodes',
+                'repo_name': 'mozikit-official-nodes',
+                'repo_url': 'https://github.com/mozikit/mozikit-official-nodes',
                 'snapshot_version': '0.0.0',
                 'snapshot_commit': '',
                 'nodes': []
@@ -111,14 +111,14 @@ jobs:
       run: |
         mkdir -p release
         cd dist
-        7z a -tzip -mx5 ../release/LocalFlow-Windows-x64.zip LocalFlow
+        7z a -tzip -mx5 ../release/Mozikit-Windows-x64.zip Mozikit
         cd ..
 
     - name: Calculate release hashes
       id: hashes
       shell: pwsh
       run: |
-        $msiPath = "release/localflow-${{ steps.release_meta.outputs.tag }}-x64.msi"
+        $msiPath = "release/mozikit-${{ steps.release_meta.outputs.tag }}-x64.msi"
         if (-not (Test-Path $msiPath)) {
           throw "MSI artifact not found: $msiPath"
         }
@@ -129,7 +129,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: localflow-release-assets
+        name: mozikit-release-assets
         path: release/
         retention-days: 7
 
@@ -164,7 +164,7 @@ jobs:
     - name: Download release assets
       uses: actions/download-artifact@v4
       with:
-        name: localflow-release-assets
+        name: mozikit-release-assets
         path: release
 
     - name: Create release
@@ -172,8 +172,8 @@ jobs:
       with:
         tag_name: ${{ steps.release_meta.outputs.tag }}
         files: |
-          release/LocalFlow-Windows-x64.zip
-          release/localflow-*-x64.msi
+          release/Mozikit-Windows-x64.zip
+          release/mozikit-*-x64.msi
           release/SHA256SUMS
         draft: false
         prerelease: false
@@ -224,8 +224,8 @@ jobs:
       run: |
         New-Item -ItemType Directory -Force -Path "release" | Out-Null
         $tag = "${{ steps.release_meta.outputs.tag }}"
-        $url = "https://github.com/${{ github.repository }}/releases/download/$tag/localflow-$tag-x64.msi"
-        Invoke-WebRequest -Uri $url -OutFile "release/localflow-$tag-x64.msi"
+        $url = "https://github.com/${{ github.repository }}/releases/download/$tag/mozikit-$tag-x64.msi"
+        Invoke-WebRequest -Uri $url -OutFile "release/mozikit-$tag-x64.msi"
 
     - name: Generate WinGet manifests
       shell: pwsh
@@ -233,7 +233,7 @@ jobs:
         ./scripts/generate_winget_manifest.ps1 `
           -Tag "${{ steps.release_meta.outputs.tag }}" `
           -Repository "${{ github.repository }}" `
-          -MsiPath "release/localflow-${{ steps.release_meta.outputs.tag }}-x64.msi"
+          -MsiPath "release/mozikit-${{ steps.release_meta.outputs.tag }}-x64.msi"
 
     - name: Submit to winget-pkgs
       shell: pwsh
@@ -241,6 +241,6 @@ jobs:
         WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
       run: |
         $version = "${{ steps.release_meta.outputs.version }}"
-        $manifestDir = ".\winget-manifests\manifests\l\localflow-app\LocalFlow\$version"
-        $prTitle = "Add localflow-app.LocalFlow $version"
+        $manifestDir = ".\winget-manifests\manifests\l\Mozikit\Mozikit\$version"
+        $prTitle = "Add Mozikit.Mozikit $version"
         wingetcreate submit --prtitle $prTitle --token $env:WINGET_TOKEN --no-open $manifestDir

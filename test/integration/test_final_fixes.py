@@ -10,8 +10,10 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer
 from src.main_window import MainWindow
 from src.core.node_base import NodeType
+import pytest
 
 
+@pytest.mark.skip(reason="需要 GUI 和 window fixture，不适合自动化 CI")
 def test_all_fixes(window):
     """测试所有修复"""
     print("\n" + "="*60)
@@ -67,6 +69,7 @@ def switch_to_second_node(window, nodes):
     QTimer.singleShot(300, lambda: test_rename(window))
 
 
+@pytest.mark.skip(reason="需要 GUI 和 window fixture，不适合自动化 CI")
 def test_rename(window):
     """测试重命名"""
     print("\n[测试4] 测试工作流重命名...")
@@ -95,6 +98,7 @@ def test_rename(window):
     QTimer.singleShot(500, lambda: test_save_overwrite(window))
 
 
+@pytest.mark.skip(reason="需要 GUI 和 window fixture，不适合自动化 CI")
 def test_save_overwrite(window):
     """测试保存覆盖提示"""
     print("\n[测试5] 测试保存覆盖提示...")

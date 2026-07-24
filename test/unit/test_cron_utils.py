@@ -10,7 +10,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 sys.path.insert(0, PROJECT_ROOT)
 
 from src.core.cron_utils import CronUtils
-from src.core.exceptions import LocalFlowError
+from src.core.exceptions import MozikitError
 
 
 class TestCronUtilsParseCron(unittest.TestCase):
@@ -25,11 +25,11 @@ class TestCronUtilsParseCron(unittest.TestCase):
         self.assertEqual(parts, ("0", "8", "*", "*", "1,3,5"))
 
     def test_parse_rejects_empty(self):
-        with self.assertRaises(LocalFlowError):
+        with self.assertRaises(MozikitError):
             CronUtils.parse_cron("")
 
     def test_parse_rejects_wrong_field_count(self):
-        with self.assertRaises(LocalFlowError):
+        with self.assertRaises(MozikitError):
             CronUtils.parse_cron("0 0 * *")
 
 
@@ -41,19 +41,19 @@ class TestCronUtilsValidateCron(unittest.TestCase):
         self.assertEqual(normalized, "*/15 * * * 1-5")
 
     def test_rejects_invalid_field_count(self):
-        with self.assertRaisesRegex(LocalFlowError, "无效的 Cron"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron"):
             CronUtils.validate_cron("0 0 * *")
 
     def test_rejects_invalid_hour_range(self):
-        with self.assertRaisesRegex(LocalFlowError, "无效的 Cron 字段范围"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron 字段范围"):
             CronUtils.validate_cron("0 24 * * *")
 
     def test_rejects_invalid_minute_range(self):
-        with self.assertRaisesRegex(LocalFlowError, "无效的 Cron 字段范围"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron 字段范围"):
             CronUtils.validate_cron("60 * * * *")
 
     def test_rejects_invalid_day_range(self):
-        with self.assertRaisesRegex(LocalFlowError, "无效的 Cron 字段范围"):
+        with self.assertRaisesRegex(MozikitError, "无效的 Cron 字段范围"):
             CronUtils.validate_cron("0 0 32 * *")
 
     def test_accepts_sunday_as_7(self):
@@ -70,11 +70,11 @@ class TestCronUtilsValidateCron(unittest.TestCase):
         self.assertEqual(normalized, "0,30 9-17 * * 1-5")
 
     def test_rejects_negative_step(self):
-        with self.assertRaisesRegex(LocalFlowError, "步长"):
+        with self.assertRaisesRegex(MozikitError, "步长"):
             CronUtils.validate_cron("*/-5 * * * *")
 
     def test_rejects_empty_expression(self):
-        with self.assertRaises(LocalFlowError):
+        with self.assertRaises(MozikitError):
             CronUtils.validate_cron("   ")
 
     def test_accepts_large_step_values(self):
@@ -290,7 +290,7 @@ class TestCronUtilsNormalizeCron(unittest.TestCase):
         self.assertEqual(CronUtils.normalize_cron("  */5   *  *  *  *  "), "*/5 * * * *")
 
     def test_raises_on_empty(self):
-        with self.assertRaises(LocalFlowError):
+        with self.assertRaises(MozikitError):
             CronUtils.normalize_cron("")
 
     def test_tabs_in_expression(self):

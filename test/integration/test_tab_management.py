@@ -11,8 +11,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QTimer, Qt
 from src.main_window import MainWindow
 from src.core.node_base import NodeType
+import pytest
 
 
+@pytest.mark.skip(reason="需要 GUI 和 window fixture，不适合自动化 CI")
 def test_tab_management(window):
     """测试标签页管理"""
     print("\n" + "="*60)

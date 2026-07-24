@@ -626,7 +626,7 @@ class OverviewWidget(QWidget):
         title_layout.setSpacing(16)
 
         logo_label = QLabel()
-        logo_pixmap = QPixmap(self._get_resource_path("assets/localflow_64.png"))
+        logo_pixmap = QPixmap(self._get_resource_path("assets/mozikit_64.png"))
         logo_label.setPixmap(
             logo_pixmap.scaled(
                 56,
@@ -642,7 +642,7 @@ class OverviewWidget(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(4)
 
-        title_label = QLabel("LocalFlow")
+        title_label = QLabel("Mozikit")
         title_font = QFont()
         title_font.setPointSize(24)
         title_font.setWeight(QFont.Weight.Bold)

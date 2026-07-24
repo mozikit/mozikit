@@ -1,4 +1,4 @@
-# LocalFlow 新功能使用指南
+# Mozikit 新功能使用指南
 
 本指南介绍最新添加的四个功能的使用方法。
 
@@ -217,4 +217,5 @@ workflows/
 
 ---
 
-**享受使用 LocalFlow！** 🚀
+**享受使用 Mozikit！** 🚀
+

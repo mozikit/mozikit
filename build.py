@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 PyInstaller Build Script
-Used to package LocalFlow into an executable
+Used to package Mozikit into an executable
 """
 
 import os
@@ -80,8 +80,8 @@ def create_spec_file():
     missing_files = []
     
     # Windows 可执行文件图标必须使用 ICO，任务管理器与开始菜单均依赖此图标资源
-    ico_file = ASSETS_DIR / "localflow.ico"
-    png_file = ASSETS_DIR / "localflow_64.png"
+    ico_file = ASSETS_DIR / "mozikit.ico"
+    png_file = ASSETS_DIR / "mozikit_64.png"
     
     icon_file = None
     if ico_file.exists():
@@ -211,11 +211,11 @@ def create_spec_file():
         '',
         '# 图标路径',
         'icon_path = None',
-        'if Path("assets/localflow.ico").exists():',
-        '    icon_path = "assets/localflow.ico"',
+        'if Path("assets/mozikit.ico").exists():',
+        '    icon_path = "assets/mozikit.ico"',
         '    print(f"[INFO] 设置图标: {icon_path}")',
         'else:',
-        '    raise FileNotFoundError("Missing required icon: assets/localflow.ico")',
+        '    raise FileNotFoundError("Missing required icon: assets/mozikit.ico")',
         '',
         '# 注意：PySide6 使用 LGPL 许可证，为了合规性，',
         '# 不建议打包为单文件，而是使用目录版本',
@@ -223,7 +223,7 @@ def create_spec_file():
         '    pyz,',
         '    a.scripts,',
         '    [],  # 不包含 binaries 和 datas，由 COLLECT 处理',
-        '    name="LocalFlow",',
+        '    name="Mozikit",',
         '    debug=False,',
         '    bootloader_ignore_signals=False,',
         '    strip=False,',
@@ -247,28 +247,28 @@ def create_spec_file():
         '    strip=False,',
         '    upx=True,',
         '    upx_exclude=[],',
-        '    name="LocalFlow"',
+        '    name="Mozikit"',
         ')',
     ]
     
     spec_content = '\n'.join(spec_lines)
     
-    with open('LocalFlow.spec', 'w', encoding='utf-8') as f:
+    with open('Mozikit.spec', 'w', encoding='utf-8') as f:
         f.write(spec_content)
     
-    print("[OK] LocalFlow.spec created successfully")
+    print("[OK] Mozikit.spec created successfully")
 
 def clean_build():
     """Clean previous build files"""
     print("Cleaning previous build files...")
     
-    dirs_to_clean = ['build', 'dist', 'LocalFlow_dir']
+    dirs_to_clean = ['build', 'dist', 'Mozikit_dir']
     for dir_name in dirs_to_clean:
         if os.path.exists(dir_name):
             shutil.rmtree(dir_name)
             print(f"  - Deleted {dir_name}")
     
-    files_to_clean = ['LocalFlow.spec']
+    files_to_clean = ['Mozikit.spec']
     for file_name in files_to_clean:
         if os.path.exists(file_name):
             os.remove(file_name)
@@ -283,7 +283,7 @@ def build_executable():
         'pyinstaller',
         '--clean',
         '--noconfirm',
-        'LocalFlow.spec'
+        'Mozikit.spec'
     ]
     
     try:
@@ -299,12 +299,12 @@ def verify_build():
     print("Verifying build results...")
     
     # Check directory version (PySide6 recommended)
-    dir_path = Path('dist/LocalFlow')
+    dir_path = Path('dist/Mozikit')
     if dir_path.exists():
         print(f"[OK] Directory distribution found: {dir_path}")
         
         # Check main executable
-        main_exe = dir_path / 'LocalFlow.exe'
+        main_exe = dir_path / 'Mozikit.exe'
         if main_exe.exists():
             size_mb = main_exe.stat().st_size / (1024 * 1024)
             print(f"   Main executable: {main_exe}")
@@ -323,8 +323,8 @@ def create_release_package():
     release_dir = Path("release")
     release_dir.mkdir(exist_ok=True)
     
-    zip_path = release_dir / "LocalFlow-Windows-x64.zip"
-    source_dir = Path("dist/LocalFlow")
+    zip_path = release_dir / "Mozikit-Windows-x64.zip"
+    source_dir = Path("dist/Mozikit")
     
     if not source_dir.exists():
         print(f"[ERROR] Source directory not found: {source_dir}")
@@ -349,39 +349,39 @@ def create_portable_package():
     """Create portable package"""
     print("Creating portable package...")
     
-    portable_dir = Path('dist/LocalFlow_Portable')
+    portable_dir = Path('dist/Mozikit_Portable')
     if portable_dir.exists():
         shutil.rmtree(portable_dir)
     
     portable_dir.mkdir(parents=True)
     
     # Copy directory version
-    dir_path = Path('dist/LocalFlow')
+    dir_path = Path('dist/Mozikit')
     if dir_path.exists():
-        shutil.copytree(dir_path, portable_dir / 'LocalFlow', dirs_exist_ok=True)
+        shutil.copytree(dir_path, portable_dir / 'Mozikit', dirs_exist_ok=True)
     
     # Create start script
     if os.name == 'nt':  # Windows
-        start_script = portable_dir / 'Start_LocalFlow.bat'
+        start_script = portable_dir / 'Start_Mozikit.bat'
         start_script.write_text('''@echo off
-cd /d "%~dp0LocalFlow"
-LocalFlow.exe
+cd /d "%~dp0Mozikit"
+Mozikit.exe
 pause
 ''')
-        print("[OK] Portable version created (Start script: Start_LocalFlow.bat)")
+        print("[OK] Portable version created (Start script: Start_Mozikit.bat)")
     else:  # Linux/Mac
-        start_script = portable_dir / 'start_localflow.sh'
+        start_script = portable_dir / 'start_mozikit.sh'
         start_script.write_text('''#!/bin/bash
-cd "$(dirname "$0")/LocalFlow"
-./LocalFlow
+cd "$(dirname "$0")/Mozikit"
+./Mozikit
 ''')
         os.chmod(start_script, 0o755)
-        print("[OK] Portable version created (Start script: start_localflow.sh)")
+        print("[OK] Portable version created (Start script: start_mozikit.sh)")
 
 def main():
     """Main function"""
     print("=" * 50)
-    print("LocalFlow PyInstaller Build Script")
+    print("Mozikit PyInstaller Build Script")
     print("=" * 50)
     
     # Check current directory
@@ -422,12 +422,12 @@ def main():
         print("[SUCCESS] Build completed!")
         print("=" * 50)
         print("\nOutput files:")
-        print("  - dist/LocalFlow/                (Directory version)")
-        print("  - release/LocalFlow-Windows-x64.zip (Release Package - Matches GitHub Actions)")
-        print("  - dist/LocalFlow_Portable/       (Portable version with start script)")
+        print("  - dist/Mozikit/                (Directory version)")
+        print("  - release/Mozikit-Windows-x64.zip (Release Package - Matches GitHub Actions)")
+        print("  - dist/Mozikit_Portable/       (Portable version with start script)")
         print("\n✅ Compliant with PySide6 LGPL requirements")
         print("Recommended usage:")
-        print("  - Use release/LocalFlow-Windows-x64.zip for distribution")
+        print("  - Use release/Mozikit-Windows-x64.zip for distribution")
         
     except KeyboardInterrupt:
         print("\n\n[INFO] Build cancelled")

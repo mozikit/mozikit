@@ -1,4 +1,4 @@
-# LocalFlow 工作流执行系统 - 实现总结
+# Mozikit 工作流执行系统 - 实现总结
 
 ## ✅ 已完成功能
 
@@ -184,7 +184,7 @@ UV 已安装: True
   - node3: 变量计算 (result = x + y * 2)
 
 准备工作流环境...
-虚拟环境已存在: d:\Dev\Python\localflow\workflows\test_workflow\.venv
+虚拟环境已存在: d:\Dev\Python\Mozikit\workflows\test_workflow\.venv
 环境准备成功
 
 开始执行工作流...
@@ -212,7 +212,7 @@ UV 已安装: True
 ## 📁 项目结构
 
 ```
-LocalFlow/
+Mozikit/
 ├── src/
 │   ├── core/                           # 核心执行引擎
 │   │   ├── __init__.py
@@ -431,4 +431,5 @@ python main.py
 
 **系统已完整实现并测试通过！** 🎉
 
-可以开始使用LocalFlow构建你的工作流了！
+可以开始使用Mozikit构建你的工作流了！
+

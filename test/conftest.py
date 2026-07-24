@@ -26,7 +26,7 @@ def cli_runner():
 @pytest.fixture
 def tmp_project_dir():
     """创建临时项目目录，自动清理。"""
-    tmp = Path(tempfile.mkdtemp(prefix="localflow_test_"))
+    tmp = Path(tempfile.mkdtemp(prefix="mozikit_test_"))
     yield tmp
     if tmp.exists():
         shutil.rmtree(tmp, ignore_errors=True)

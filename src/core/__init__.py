@@ -4,12 +4,12 @@ import subprocess
 import os
 from pathlib import Path
 
-from .exceptions import ErrorCode, LocalFlowError
+from .exceptions import ErrorCode, MozikitError
 
 
 def resolve_workspace() -> Path:
-    """Resolve workspace root – env LOCALFLOW_WORKSPACE, else ./workflows."""
-    env_ws = os.environ.get("LOCALFLOW_WORKSPACE")
+    """Resolve workspace root – env MOZIKIT_WORKSPACE, else ./workflows."""
+    env_ws = os.environ.get("MOZIKIT_WORKSPACE")
     if env_ws:
         return Path(env_ws)
     return Path("workflows")

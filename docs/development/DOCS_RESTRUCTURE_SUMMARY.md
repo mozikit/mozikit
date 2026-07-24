@@ -8,7 +8,7 @@
 
 ### 重组前 (根目录杂乱)
 ```
-LocalFlow/
+Mozikit/
 ├── README.md                    # 项目说明
 ├── QUICK_START.md               # 快速开始
 ├── UI_GUIDE.md                  # UI 指南
@@ -38,7 +38,7 @@ LocalFlow/
 
 ### 重组后 (结构化)
 ```
-LocalFlow/
+Mozikit/
 ├── README.md                     # 项目主文档 (精简版)
 ├── docs/                         # 文档目录
 │   ├── README.md                 # 文档索引
@@ -177,7 +177,7 @@ LocalFlow/
 
 ## 总结
 
-通过这次重组，LocalFlow 项目的文档结构得到了显著改善：
+通过这次重组，Mozikit 项目的文档结构得到了显著改善：
 
 1. **根目录整洁** - 从 27 个文档文件减少到 1 个主 README
 2. **分类清晰** - 按用户类型和文档性质分类

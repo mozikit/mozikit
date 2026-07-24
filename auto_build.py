@@ -10,7 +10,7 @@ from build import create_spec_file, clean_build, build_executable, verify_build,
 def auto_build():
     """自动构建（不询问）"""
     print("=" * 50)
-    print("LocalFlow Auto-Build Script")
+    print("Mozikit Auto-Build Script")
     print("=" * 50)
     
     # 检查当前目录

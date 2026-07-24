@@ -1,4 +1,4 @@
-# LocalFlow AI Agent 工具扩展实现总结
+# Mozikit AI Agent 工具扩展实现总结
 
 ## 修改文件列表
 
@@ -148,3 +148,4 @@ python test_new_tools.py
 - 现有 12 个工具功能不变
 - 新增工具不会破坏现有代码
 - ErrorCode 枚举扩展不影响现有错误码使用
+

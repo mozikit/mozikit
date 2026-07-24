@@ -40,7 +40,7 @@ jobs:
       - name: Create official_nodes directory
         run: |
           mkdir -p official_nodes
-          echo '{"repo_name":"localflow-official-nodes","repo_version":"0.0.0","nodes":{}}' > official_nodes/manifest.json
+          echo '{"repo_name":"mozikit-official-nodes","repo_version":"0.0.0","nodes":{}}' > official_nodes/manifest.json
 
       - name: Run unit tests
         run: |

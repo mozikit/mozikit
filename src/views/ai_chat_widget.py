@@ -668,7 +668,7 @@ class AIChatWidget(QWidget):
     def _add_welcome_message(self):
         """添加欢迎消息"""
         welcome = (
-            "你好！我是 LocalFlow AI 助手，可以帮你组织工作流节点。\n\n"
+            "你好！我是 Mozikit AI 助手，可以帮你组织工作流节点。\n\n"
             "例如：\n"
             "- 添加一个 SQLite 连接节点\n"
             "- 添加数据库查询流程（自动添加多个节点并连接）\n"

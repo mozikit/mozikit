@@ -204,7 +204,7 @@ class UpdateCheckResult:
 class NodeRepoManager:
     """节点仓库管理器 - 支持多版本选择性安装"""
 
-    OFFICIAL_REPO_URL = "https://github.com/localflow-app/localflow-official-nodes"
+    OFFICIAL_REPO_URL = "https://github.com/mozikit/mozikit-official-nodes"
     GITHUB_API_BASE = "https://api.github.com"
 
     def __init__(self, user_data_dir: Path):

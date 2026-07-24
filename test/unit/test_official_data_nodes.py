@@ -20,6 +20,7 @@ class TestOfficialDataNodes(unittest.TestCase):
         if self.test_root.exists():
             shutil.rmtree(self.test_root)
 
+    @unittest.skip("需要 mozikit-official-nodes 仓库中的节点定义，CI 中不可用")
     def test_table_reader_reads_csv(self):
         csv_path = self.test_root / "demo.csv"
         csv_path.write_text("name,count\nalpha,1\nbeta,2\n", encoding="utf-8")
@@ -44,6 +45,7 @@ class TestOfficialDataNodes(unittest.TestCase):
         self.assertEqual(table_data["rows"][0]["name"], "alpha")
         self.assertEqual(table_data["rows"][1]["count"], "2")
 
+    @unittest.skip("需要 mozikit-official-nodes 仓库中的节点定义，CI 中不可用")
     def test_table_aggregate_and_template_render(self):
         aggregate_node = NodeBase.from_dict({
             "node_id": "node_aggregate",
@@ -109,6 +111,7 @@ class TestOfficialDataNodes(unittest.TestCase):
             "共 3 条，分组数 2。",
         )
 
+    @unittest.skip("需要 mozikit-official-nodes 仓库中的节点定义，CI 中不可用")
     def test_clipboard_send_uses_clipboard_and_hotkeys(self):
         stub_dir = self.test_root / "stubs"
         stub_dir.mkdir(parents=True, exist_ok=True)
@@ -165,6 +168,7 @@ class TestOfficialDataNodes(unittest.TestCase):
         self.assertEqual(log_data["copied_text"], "hello")
         self.assertEqual(log_data["hotkeys"], [["ctrl", "v"], ["enter"]])
 
+    @unittest.skip("需要 mozikit-official-nodes 仓库中的节点定义，CI 中不可用")
     def test_registry_exposes_new_official_nodes(self):
         registry = get_registry()
         self.assertIsNotNone(registry.get_node("table_reader"))

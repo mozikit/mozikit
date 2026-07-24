@@ -256,7 +256,7 @@ def example_3_combined_workflow():
 
 
 if __name__ == "__main__":
-    print("LocalFlow 工作流示例")
+    print("Mozikit 工作流示例")
     print("=" * 60)
     
     try:

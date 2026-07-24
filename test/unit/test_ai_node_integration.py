@@ -31,6 +31,9 @@ class TestAISettingsAndGeneratedNode(unittest.TestCase):
                 "temperature": 0.4,
             }
         )
+        # set_ai_settings 内部 save_config 是异步（后台线程），
+        # 测试需要同步等待写入完成再读取，否则读取到的是空默认值。
+        manager.save_config_sync()
 
         reloaded = ConfigManager(str(config_path))
         settings = reloaded.get_ai_settings()
@@ -52,10 +55,12 @@ class TestAISettingsAndGeneratedNode(unittest.TestCase):
 
         self.assertIsNotNone(node_def)
         node_dir = manager.custom_nodes_dir / node_def.node_type
-        self.assertTrue((node_dir / "node.json").exists())
-        self.assertTrue((node_dir / "node.py").exists())
+        # node.json / node.py 存放在 versions/<version>/ 子目录下
+        version_dir = node_dir / "versions" / node_def.version
+        self.assertTrue((version_dir / "node.json").exists())
+        self.assertTrue((version_dir / "node.py").exists())
 
-        with open(node_dir / "node.json", "r", encoding="utf-8") as f:
+        with open(version_dir / "node.json", "r", encoding="utf-8") as f:
             config = json.load(f)
 
         self.assertEqual(config["name"], "test_node")

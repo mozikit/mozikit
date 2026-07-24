@@ -3,6 +3,8 @@ CLI 命令单元测试 — 使用 Typer CliRunner
 """
 import json
 import os
+import re
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -14,11 +16,16 @@ sys.path.insert(0, PROJECT_ROOT)
 from typer.testing import CliRunner
 
 from src.cli import app
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 
 
 class TestCLIAppStructure(unittest.TestCase):
     """CLI 应用结构"""
+
+    @staticmethod
+    def _clean_output(output: str) -> str:
+        """去除 rich 添加的 ANSI 转义码，便于字符串匹配。"""
+        return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
 
     def setUp(self):
         self.runner = CliRunner()
@@ -32,10 +39,11 @@ class TestCLIAppStructure(unittest.TestCase):
     def test_run_help_shows_options(self):
         result = self.runner.invoke(app, ["run", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("WORKFLOW_PATH", result.output)
-        self.assertIn("--input", result.output)
-        self.assertIn("--output", result.output)
-        self.assertIn("--verbose", result.output)
+        output = self._clean_output(result.output)
+        self.assertIn("workflow_path", output)
+        self.assertIn("--input", output)
+        self.assertIn("--output", output)
+        self.assertIn("--verbose", output)
 
     def test_schedule_help_shows_commands(self):
         result = self.runner.invoke(app, ["schedule", "--help"])
@@ -179,19 +187,24 @@ class TestCLIRunCommand(unittest.TestCase):
 
         with patch("src.cli.Path.exists", return_value=True):
             with patch("src.cli.Path.is_file", return_value=True):
-                with self.runner.isolated_filesystem():
-                    result = self.runner.invoke(
-                        app,
-                        [
-                            "run", "/fake/workflow.json",
-                            "--output", "output.json",
-                        ],
-                    )
-                    self.assertEqual(result.exit_code, 0)
-                    self.assertTrue(Path("output.json").exists())
-                    with open("output.json") as f:
-                        data = json.load(f)
-                    self.assertEqual(data["success"], True)
+                with tempfile.TemporaryDirectory() as _tmpdir:
+                    old_cwd = os.getcwd()
+                    os.chdir(_tmpdir)
+                    try:
+                        result = self.runner.invoke(
+                            app,
+                            [
+                                "run", "/fake/workflow.json",
+                                "--output", "output.json",
+                            ],
+                        )
+                        self.assertEqual(result.exit_code, 0)
+                        self.assertTrue(Path("output.json").exists())
+                        with open("output.json") as f:
+                            data = json.load(f)
+                        self.assertEqual(data["success"], True)
+                    finally:
+                        os.chdir(old_cwd)
 
     def test_run_execution_failure(self, mock_load):
         """工作流执行失败场景"""
@@ -362,12 +375,13 @@ class TestCLIScheduleCommand(unittest.TestCase):
         mock_sched.add_task.return_value = "new-id-123"
         mock_sched_cls.return_value = mock_sched
 
+        wf_path = "/path/to/workflow.json"
         with patch("src.cli.Path.exists", return_value=True):
             result = self.runner.invoke(
                 app,
                 [
                     "schedule", "add",
-                    "/path/to/workflow.json",
+                    wf_path,
                     "--cron", "*/5 * * * *",
                     "--name", "my-task",
                 ],
@@ -375,7 +389,7 @@ class TestCLIScheduleCommand(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             self.assertIn("new-id-123", result.output)
             mock_sched.add_task.assert_called_once_with(
-                "my-task", "/path/to/workflow.json", "*/5 * * * *"
+                "my-task", str(Path(wf_path)), "*/5 * * * *"
             )
 
     @patch("src.cli.HeadlessScheduler")
@@ -385,15 +399,16 @@ class TestCLIScheduleCommand(unittest.TestCase):
         mock_sched.add_task.return_value = "id-456"
         mock_sched_cls.return_value = mock_sched
 
+        wf_path = "/path/to/my_workflow.json"
         with patch("src.cli.Path.exists", return_value=True):
             with patch("src.cli.Path.stem", "my_workflow"):
                 result = self.runner.invoke(
                     app,
-                    ["schedule", "add", "/path/to/my_workflow.json"],
+                    ["schedule", "add", wf_path],
                 )
                 self.assertEqual(result.exit_code, 0)
                 mock_sched.add_task.assert_called_once_with(
-                    "my_workflow", "/path/to/my_workflow.json", "0 * * * *"
+                    "my_workflow", str(Path(wf_path)), "0 * * * *"
                 )
 
     def test_schedule_add_nonexistent_path(self):
@@ -409,7 +424,7 @@ class TestCLIScheduleCommand(unittest.TestCase):
     def test_schedule_add_invalid_cron(self, mock_sched_cls):
         """schedule add 时无效 cron 应报错"""
         mock_sched = MagicMock()
-        mock_sched.add_task.side_effect = LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, "无效的 Cron 表达式")
+        mock_sched.add_task.side_effect = MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, "无效的 Cron 表达式")
         mock_sched_cls.return_value = mock_sched
 
         with patch("src.cli.Path.exists", return_value=True):
@@ -623,7 +638,7 @@ class TestCLIWorkflowCommand(unittest.TestCase):
         mock_executor.workflow_name = "broken_wf"
         mock_executor.nodes = [MagicMock()]
         mock_executor.edges = []
-        mock_executor._topological_sort.side_effect = LocalFlowError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "循环依赖检测")
+        mock_executor._topological_sort.side_effect = MozikitError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "循环依赖检测")
         mock_load.return_value = mock_executor
 
         result = self.runner.invoke(app, ["workflow", "validate", "/fake/wf.json"])
@@ -632,21 +647,31 @@ class TestCLIWorkflowCommand(unittest.TestCase):
 
     def test_workflow_list_corrupted_json(self):
         """workflow list 遇到损坏的 JSON 应跳过"""
-        with self.runner.isolated_filesystem():
-            wf_dir = Path("workflows")
-            wf_dir.mkdir()
-            (wf_dir / "workflow.json").write_text("{bad json}")
-            result = self.runner.invoke(app, ["workflow", "list"])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("已保存的工作流", result.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                wf_dir = Path("workflows")
+                wf_dir.mkdir()
+                (wf_dir / "workflow.json").write_text("{bad json}")
+                result = self.runner.invoke(app, ["workflow", "list"])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("已保存的工作流", result.output)
+            finally:
+                os.chdir(old_cwd)
 
     def test_workflow_list_empty_dir(self):
         """workflows 目录存在但为空"""
-        with self.runner.isolated_filesystem():
-            Path("workflows").mkdir()
-            result = self.runner.invoke(app, ["workflow", "list"])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("没有找到", result.output)
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(_tmpdir)
+            try:
+                Path("workflows").mkdir()
+                result = self.runner.invoke(app, ["workflow", "list"])
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("没有找到", result.output)
+            finally:
+                os.chdir(old_cwd)
 
 
 class TestCLIEnvCommand(unittest.TestCase):

@@ -837,7 +837,7 @@ wheels = [
 ]
 
 [[package]]
-name = "localflow"
+name = "mozikit"
 version = "0.2.5"
 source = { editable = "." }
 dependencies = [

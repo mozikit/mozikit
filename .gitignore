@@ -227,7 +227,7 @@ config.json
 .codeartsdoer/
 .arts/
 
-# Official nodes snapshot (synced from localflow-official-nodes repo at build time)
+# Official nodes snapshot (synced from mozikit-official-nodes repo at build time)
 official_nodes/
 
 # System library downloads

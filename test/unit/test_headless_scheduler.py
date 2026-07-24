@@ -16,7 +16,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from src.core.config_manager import ConfigManager
 from src.core.headless_scheduler import HeadlessScheduler
 from src.core.cron_utils import CronUtils
-from src.core.exceptions import LocalFlowError
+from src.core.exceptions import MozikitError
 
 
 class TestHeadlessSchedulerLifecycle(unittest.TestCase):
@@ -69,8 +69,10 @@ class TestHeadlessSchedulerTaskManagement(unittest.TestCase):
             shutil.rmtree(self.test_root)
         self.test_root.mkdir(parents=True, exist_ok=True)
         self.config_path = self.test_root / "config.json"
+        config_mgr = ConfigManager(str(self.config_path))
+        config_mgr.save_config = config_mgr.save_config_sync
         self.scheduler = HeadlessScheduler(
-            ConfigManager(str(self.config_path)),
+            config_mgr,
             tick_interval=10,
         )
 
@@ -147,7 +149,7 @@ class TestHeadlessSchedulerTaskManagement(unittest.TestCase):
 
     def test_update_task_rejects_invalid_cron(self):
         task_id = self.scheduler.add_task("test", "/path/wf.json", "0 * * * *")
-        with self.assertRaises(LocalFlowError):
+        with self.assertRaises(MozikitError):
             self.scheduler.update_task(task_id, cron_expression="61 * * * *")
 
     def test_is_task_running_defaults_false(self):
@@ -200,8 +202,10 @@ class TestHeadlessSchedulerScheduleCheck(unittest.TestCase):
             shutil.rmtree(self.test_root)
         self.test_root.mkdir(parents=True, exist_ok=True)
         self.config_path = self.test_root / "config.json"
+        config_mgr = ConfigManager(str(self.config_path))
+        config_mgr.save_config = config_mgr.save_config_sync
         self.scheduler = HeadlessScheduler(
-            ConfigManager(str(self.config_path)),
+            config_mgr,
             tick_interval=1,
         )
         # 用一个很小的 tick 方便测试
@@ -302,8 +306,10 @@ class TestHeadlessSchedulerRunNow(unittest.TestCase):
             shutil.rmtree(self.test_root)
         self.test_root.mkdir(parents=True, exist_ok=True)
         self.config_path = self.test_root / "config.json"
+        config_mgr = ConfigManager(str(self.config_path))
+        config_mgr.save_config = config_mgr.save_config_sync
         self.scheduler = HeadlessScheduler(
-            ConfigManager(str(self.config_path)),
+            config_mgr,
         )
 
     def tearDown(self):
@@ -338,8 +344,10 @@ class TestHeadlessSchedulerConcurrency(unittest.TestCase):
             shutil.rmtree(self.test_root)
         self.test_root.mkdir(parents=True, exist_ok=True)
         self.config_path = self.test_root / "config.json"
+        config_mgr = ConfigManager(str(self.config_path))
+        config_mgr.save_config = config_mgr.save_config_sync
         self.scheduler = HeadlessScheduler(
-            ConfigManager(str(self.config_path)),
+            config_mgr,
             tick_interval=1,
         )
 

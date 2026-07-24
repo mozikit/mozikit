@@ -2,14 +2,14 @@
 
 ## 构建文件说明
 
-LocalFlow 项目包含以下构建相关文件：
+Mozikit 项目包含以下构建相关文件：
 
 ### 核心构建文件
 
 - **`build.py`** - 主要的 PyInstaller 构建脚本
 - **`build.bat`** - Windows 批处理构建脚本
 - **`build.sh`** - Linux/Mac Shell 构建脚本
-- **`LocalFlow.spec`** - PyInstaller 规范文件
+- **`Mozikit.spec`** - PyInstaller 规范文件
 
 ### 已删除的重复文件
 
@@ -60,15 +60,15 @@ chmod +x build.sh
 ### 方法四：直接使用 PyInstaller
 
 ```bash
-pyinstaller LocalFlow.spec
+pyinstaller Mozikit.spec
 ```
 
 ## 构建输出
 
 构建完成后，可执行文件位于：
-- **Windows**: `dist/LocalFlow.exe`
-- **Linux**: `dist/LocalFlow`
-- **Mac**: `dist/LocalFlow.app`
+- **Windows**: `dist/Mozikit.exe`
+- **Linux**: `dist/Mozikit`
+- **Mac**: `dist/Mozikit.app`
 
 ## 故障排除
 
@@ -109,11 +109,11 @@ pyinstaller --clean --onefile --debug=all main.py
 
 ### 修改规范文件
 
-编辑 `LocalFlow.spec` 来自定义构建选项：
+编辑 `Mozikit.spec` 来自定义构建选项：
 
 ```python
 # 修改基本信息
-name = "LocalFlow"
+name = "Mozikit"
 icon = "assets/icon.ico"
 
 # 添加数据文件
@@ -172,7 +172,7 @@ python build.py
 
 3. **生成校验和**
    ```bash
-   sha256sum dist/LocalFlow.exe > checksum.txt
+   sha256sum dist/Mozikit.exe > checksum.txt
    ```
 
 4. **文档更新**
@@ -184,7 +184,7 @@ python build.py
 ### 版本号位置
 
 - `src/__init__.py` - 应用版本
-- `LocalFlow.spec` - 构建版本
+- `Mozikit.spec` - 构建版本
 - `README.md` - 文档版本
 
 ### 发布流程
@@ -202,19 +202,19 @@ python build.py
 
 1. **排除不必要的模块**
    ```python
-   # LocalFlow.spec
+   # Mozikit.spec
    exclusions = ['tkinter', 'unittest', 'test']
    ```
 
 2. **启用 UPX 压缩**
    ```python
-   # LocalFlow.spec
+   # Mozikit.spec
    upx = True
    ```
 
 3. **移除调试信息**
    ```python
-   # LocalFlow.spec
+   # Mozikit.spec
    debug = False
    ```
 
@@ -222,7 +222,7 @@ python build.py
 
 1. **使用单文件模式**
    ```python
-   # LocalFlow.spec
+   # Mozikit.spec
    onefile = True
    ```
 
@@ -234,7 +234,7 @@ python build.py
 
 1. **定期清理构建缓存**
    ```bash
-   pyinstaller --clean LocalFlow.spec
+   pyinstaller --clean Mozikit.spec
    ```
 
 2. **使用虚拟环境**
@@ -247,7 +247,7 @@ python build.py
    ```
 
 3. **版本控制**
-   - 将 `LocalFlow.spec` 加入版本控制
+   - 将 `Mozikit.spec` 加入版本控制
    - 忽略 `build/` 和 `dist/` 目录
 
 4. **文档同步**

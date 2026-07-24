@@ -12,7 +12,7 @@ def _prepare_runtime_workdir() -> None:
     if not appdata:
         appdata = str(Path.home() / "AppData" / "Roaming")
 
-    runtime_root = Path(appdata) / "LocalFlow"
+    runtime_root = Path(appdata) / "Mozikit"
     runtime_root.mkdir(parents=True, exist_ok=True)
     os.chdir(runtime_root)
 
