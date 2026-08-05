@@ -7,10 +7,16 @@
 """
 
 import sys
-from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtCore import QTimer, Qt
-from src.main_window import MainWindow
+
 from src.core.node_base import NodeType
+
+try:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtCore import QTimer, Qt
+    from src.main_window import MainWindow
+except ImportError:  # 无 PySide6 时测试已标记 skip，仅需保证模块可被收集
+    QApplication = QMessageBox = QTimer = Qt = MainWindow = None
+
 import pytest
 
 

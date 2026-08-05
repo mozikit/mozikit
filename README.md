@@ -184,23 +184,30 @@ uv venv
 source .venv/bin/activate        # Linux/macOS
 # .venv\Scripts\activate         # Windows
 
+# 基础安装：CLI 模式（不含体积较大的 PySide6）
 uv pip install -r requirements.txt
 
-# 如需 REST API 服务，额外安装
-uv pip install fastapi uvicorn
+# ── 按需选择安装选项 ──
+# GUI 桌面应用（PySide6）
+uv pip install -e .[gui]
+# REST API 服务
+uv pip install -e .[serve]
+# 全部功能（GUI + API）
+uv pip install -e .[all]
 ```
 
 ### 运行
 
 ```bash
 # ── GUI 模式（桌面应用）──
-python main.py
+# 前置：需先安装 GUI 扩展（uv pip install -e .[gui]），未安装时启动会提示
+mozikit-gui          # 推荐入口（或 python main.py，无参数默认进入 GUI）
 
-# ── CLI 模式 ──
+# ── CLI 模式（基础安装即可，无需 PySide6）──
 python main.py --help
 python main.py run workflows/example_basic_calc/workflow.json
 python main.py schedule list
-python main.py serve --port 8080
+python main.py serve --port 8080   # 需先安装: uv pip install -e .[serve]
 ```
 
 ### 打包为可执行文件

@@ -1,20 +1,4 @@
 import sys
-import os
-from pathlib import Path
-
-
-def _prepare_runtime_workdir() -> None:
-    """Use a user-writable runtime directory when running from packaged EXE."""
-    if not getattr(sys, "frozen", False):
-        return
-
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        appdata = str(Path.home() / "AppData" / "Roaming")
-
-    runtime_root = Path(appdata) / "Mozikit"
-    runtime_root.mkdir(parents=True, exist_ok=True)
-    os.chdir(runtime_root)
 
 
 # 已知 CLI 子命令（与 src/cli.py 保持一致）
@@ -51,21 +35,9 @@ def _run_cli():
 
 def run_gui():
     """运行 GUI 模式（console_scripts 入口点）"""
-    from PySide6.QtWidgets import QApplication
-    from src.main_window import MainWindow
-    from src.core.theme_manager import ThemeManager
-    from src.core.log_manager import init_logging
+    from src.gui_entry import run_gui as _run_gui
 
-    _prepare_runtime_workdir()
-    init_logging()
-    app = QApplication(sys.argv)
-
-    # 应用主题
-    ThemeManager.apply_theme(app)
-
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    _run_gui()
 
 
 if __name__ == "__main__":

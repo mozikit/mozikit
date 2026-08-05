@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=64"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mozikit"
@@ -10,26 +10,31 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.8"
 dependencies = [
-    "PySide6>=6.5.0",
     "Pillow>=10.0.0",
     "uv>=0.4.0",
     "requests>=2.31.0",
     "keyring>=24.0.0",
+    "click>=8.0",
     "typer>=0.12",
     "rich>=13.0",
     "jinja2>=3.1.0",
 ]
 
 [project.optional-dependencies]
+# GUI 桌面应用（PySide6 体积较大，按需安装）
+gui = [
+    "PySide6>=6.5.0",
+]
 serve = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
 ]
+all = ["mozikit[gui,serve]"]
 
 [project.scripts]
 mozikit = "src.cli:run_cli"
 mozikit-cli = "src.cli:run_cli"
-mozikit-gui = "main:run_gui"
+mozikit-gui = "src.gui_entry:run_gui"
 
 [tool.setuptools.packages.find]
 where = ["."]

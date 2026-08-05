@@ -2108,7 +2108,7 @@ def serve(
         from fastapi.responses import JSONResponse
         import uvicorn
     except ImportError:
-        console.print("[red]错误:[/] 需要 fastapi 和 uvicorn:\n  pip install mozikit[serve]\n  或: pip install fastapi uvicorn")
+        console.print("[red]错误:[/] 需要 fastapi 和 uvicorn:\n  pip install mozikit\\[serve]\n  或: pip install fastapi uvicorn")
         raise typer.Exit(code=1)
 
     _init(verbose=True)
