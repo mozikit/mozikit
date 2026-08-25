@@ -244,3 +244,54 @@ jobs:
         $manifestDir = ".\winget-manifests\manifests\l\Mozikit\Mozikit\$version"
         $prTitle = "Add Mozikit.Mozikit $version"
         wingetcreate submit --prtitle $prTitle --token $env:WINGET_TOKEN --no-open $manifestDir
+
+  notify-telegram:
+    name: Telegram 通知
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - build_windows
+      - publish_release
+      - submit_winget
+    steps:
+      - name: Send Telegram message
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+          BUILD_RESULT: ${{ needs.build_windows.result }}
+          PUBLISH_RESULT: ${{ needs.publish_release.result }}
+          WINGET_RESULT: ${{ needs.submit_winget.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "TELEGRAM_TOKEN 或 TELEGRAM_CHAT_ID 未配置，跳过通知。"
+            exit 0
+          fi
+
+          tag="${TAG:-unknown}"
+          if [ "$PUBLISH_RESULT" = "success" ]; then
+            text="$(printf '%s\n' \
+              "Mozikit ${tag} 发布成功" \
+              "Release: ${RELEASE_URL}" \
+              "构建: ${RUN_URL}")"
+          else
+            text="$(printf '%s\n' \
+              "Mozikit ${tag} 发版未完成" \
+              "build: ${BUILD_RESULT}" \
+              "publish: ${PUBLISH_RESULT}" \
+              "winget: ${WINGET_RESULT}" \
+              "构建: ${RUN_URL}")"
+          fi
+
+          payload="$(jq -n --arg chat "$TELEGRAM_CHAT_ID" --arg text "$text" \
+            '{chat_id:$chat, text:$text, disable_web_page_preview:false}')"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            | jq -e '.ok == true' >/dev/null
+          echo "Telegram 通知已发送。"
+
