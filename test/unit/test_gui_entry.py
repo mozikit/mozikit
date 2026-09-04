@@ -89,6 +89,9 @@ def test_run_gui_starts_application():
     fake_log.init_logging = Mock()
     fake_theme = types.ModuleType("src.core.theme_manager")
     fake_theme.ThemeManager = Mock()
+    fake_runtime = types.ModuleType("src.core.runtime_host")
+    runtime_host = Mock()
+    fake_runtime.RuntimeHost = Mock(return_value=runtime_host)
     fake_win = types.ModuleType("src.main_window")
     window = Mock()
     fake_win.MainWindow = Mock(return_value=window)
@@ -99,6 +102,7 @@ def test_run_gui_starts_application():
             "PySide6": types.ModuleType("PySide6"),
             "PySide6.QtWidgets": fake_qt,
             "src.core.log_manager": fake_log,
+            "src.core.runtime_host": fake_runtime,
             "src.core.theme_manager": fake_theme,
             "src.main_window": fake_win,
         },
@@ -110,6 +114,9 @@ def test_run_gui_starts_application():
     assert app.argv is sys.argv
     fake_log.init_logging.assert_called_once_with()
     fake_theme.ThemeManager.apply_theme.assert_called_once_with(app)
+    fake_runtime.RuntimeHost.assert_called_once_with()
+    runtime_host.start.assert_called_once_with()
+    runtime_host.stop.assert_called_once_with()
     fake_win.MainWindow.assert_called_once_with()
     window.show.assert_called_once_with()
     mock_exit.assert_called_once_with(42)

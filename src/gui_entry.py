@@ -36,15 +36,20 @@ def run_gui() -> None:
         sys.exit(1)
 
     from src.core.log_manager import init_logging
+    from src.core.runtime_host import RuntimeHost
     from src.core.theme_manager import ThemeManager
     from src.main_window import MainWindow
 
     init_logging()
     app = QApplication(sys.argv)
+    runtime_host = RuntimeHost()
+    runtime_host.start()
+    try:
+        # 应用主题
+        ThemeManager.apply_theme(app)
 
-    # 应用主题
-    ThemeManager.apply_theme(app)
-
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+        window = MainWindow()
+        window.show()
+        sys.exit(app.exec())
+    finally:
+        runtime_host.stop()

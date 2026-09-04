@@ -349,7 +349,11 @@ def run(
         def on_node_log(node_id: str, line: str):
             log_lines.append(f"[{node_id}] {line}")
 
+    from src.core.runtime_host import RuntimeHost
+
+    runtime_host = RuntimeHost()
     try:
+        runtime_host.start()
         report = executor.execute(
             initial_data=initial_data,
             return_report=True,
@@ -366,6 +370,8 @@ def run(
         else:
             console.print(json.dumps({"success": False, "error": str(e)}))
         raise typer.Exit(code=1)
+    finally:
+        runtime_host.stop()
 
     if not json_output:
         progress.stop()
@@ -633,6 +639,10 @@ def schedule_daemon(
     console.print(f"[dim]PID: {os.getpid()} -> {pid_path}[/]")
 
     mgr = HeadlessScheduler(tick_interval=tick)
+    from src.core.runtime_host import RuntimeHost
+
+    runtime_host = RuntimeHost()
+    runtime_host.start()
 
     # 注册任务生命周期回调
     mgr.on_task_start(lambda t: console.print(
@@ -654,6 +664,7 @@ def schedule_daemon(
         if running:
             console.print(f"\n[yellow]收到信号 ({signum})，停止调度器...[/]")
             mgr.stop()
+            runtime_host.stop()
             running = False
             pid_path.unlink(missing_ok=True)
             console.print("[green]调度器已停止[/]")
@@ -671,6 +682,8 @@ def schedule_daemon(
             _time.sleep(1)
     except KeyboardInterrupt:
         _shutdown(signal.SIGINT, None)
+    finally:
+        runtime_host.stop()
 
     raise typer.Exit(code=0)
 
@@ -2104,6 +2117,7 @@ def serve(
 ):
     """启动轻量 API 服务"""
     try:
+        from contextlib import asynccontextmanager
         from fastapi import FastAPI, HTTPException
         from fastapi.responses import JSONResponse
         import uvicorn
@@ -2112,11 +2126,23 @@ def serve(
         raise typer.Exit(code=1)
 
     _init(verbose=True)
+    from src.core.runtime_host import RuntimeHost
+
+    runtime_host = RuntimeHost()
+
+    @asynccontextmanager
+    async def lifespan(_api):
+        runtime_host.start()
+        try:
+            yield
+        finally:
+            runtime_host.stop()
 
     api = FastAPI(
         title="Mozikit API",
         description="Mozikit 工作流自动化引擎 REST API",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     @api.get("/health")

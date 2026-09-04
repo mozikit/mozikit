@@ -8,6 +8,7 @@ import pytest
 
 from src.core.node_base import CustomNode
 from src.core.runtime_base import RuntimeBase
+from src.core.runtime_host import RuntimeHost
 from src.core.runtime_manager import RuntimeManager, RuntimeService
 from src.core.runtime_registry import RuntimeRegistry
 from src.core.uv_manager import UVManager
@@ -116,8 +117,66 @@ def test_two_workflow_runs_share_runtime_state_and_stop_with_service(tmp_path, m
     finally:
         service.stop()
 
+    # RuntimeService owns only HTTP transport; RuntimeManager owns instances.
+    assert runtime.started is True
+    assert "echo-1" in manager.instances
+    manager.stop_all()
     assert runtime.started is False
     assert manager.instances == {}
+
+
+def test_runtime_host_loads_config_and_persists_across_workflow_runs(
+    tmp_path, monkeypatch
+):
+    config_path = tmp_path / "runtimes.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "runtime_type": "echo",
+                "runtime_id": "echo-1",
+                "enabled": True,
+                "config": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = RuntimeRegistry()
+    host = RuntimeHost(
+        config_path=str(config_path),
+        plugin_root=str(ECHO_DEFINITION.parent),
+        registry=registry,
+        port=0,
+    )
+    host.start()
+    runtime = host.manager.instances["echo-1"]
+
+    uv_manager = UVManager(workspace_root=str(tmp_path / "workflows"))
+    monkeypatch.setattr(
+        uv_manager,
+        "_get_python_executable",
+        lambda workflow_name: Path(sys.executable),
+    )
+
+    try:
+        first = _runtime_call_workflow("host-run-1", uv_manager, host.base_url).execute(
+            return_report=True
+        )
+        second = _runtime_call_workflow("host-run-2", uv_manager, host.base_url).execute(
+            return_report=True
+        )
+
+        assert first["success"] is True, first
+        assert first["final_context"]["count"] == 1
+        assert second["success"] is True, second
+        assert second["final_context"]["count"] == 2
+        assert host.is_running is True
+        assert runtime.started is True
+    finally:
+        host.stop()
+
+    assert host.is_running is False
+    assert runtime.started is False
+    assert host.manager.instances == {}
 
 
 def test_runtime_http_service_rejects_unknown_runtime():

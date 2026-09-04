@@ -209,7 +209,6 @@ class RuntimeService:
             server.server_close()
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=5)
-        self.manager.stop_all()
 
     def __enter__(self) -> "RuntimeService":
         self.start()
