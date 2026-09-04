@@ -326,6 +326,11 @@ class UVManager:
 
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
+            from src.core.runtime_client import RuntimeClient
+
+            runtime_client = RuntimeClient()
+            runtime_client.ensure_running()
+            env.update(runtime_client.worker_env())
 
             process = subprocess.Popen(
                 [str(python_exe), script_path],
@@ -822,6 +827,11 @@ class UVManager:
             # 设置环境变量强制使用UTF-8
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
+            from src.core.runtime_client import RuntimeClient
+
+            runtime_client = RuntimeClient()
+            runtime_client.ensure_running()
+            env.update(runtime_client.worker_env())
             
             if os.name == 'nt':
                 creationflags = 0x08000000  # CREATE_NO_WINDOW

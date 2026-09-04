@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import hmac
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import unquote, urlsplit
 
 from .runtime_base import RuntimeBase
@@ -109,12 +110,16 @@ class RuntimeService:
         manager: RuntimeManager,
         host: str = "127.0.0.1",
         port: int = 48765,
+        auth_token: str = "",
+        shutdown_callback: Optional[Callable[[], None]] = None,
     ) -> None:
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("the first runtime service version only supports localhost")
         self.manager = manager
         self.host = host
         self.port = port
+        self.auth_token = auth_token
+        self.shutdown_callback = shutdown_callback
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -136,6 +141,8 @@ class RuntimeService:
 
         manager = self.manager
         max_request_bytes = self.MAX_REQUEST_BYTES
+        auth_token = self.auth_token
+        shutdown_callback = self.shutdown_callback
 
         class Handler(BaseHTTPRequestHandler):
             def _write_json(self, status: int, payload: dict) -> None:
@@ -152,7 +159,27 @@ class RuntimeService:
                     return parts[1]
                 return None
 
+            def _authorized(self) -> bool:
+                supplied = self.headers.get("Authorization", "")
+                expected = f"Bearer {auth_token}"
+                return bool(auth_token) and hmac.compare_digest(supplied, expected)
+
+            def _require_authorization(self) -> bool:
+                if self._authorized():
+                    return True
+                self._write_json(401, {"error": "unauthorized"})
+                return False
+
             def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+                if not self._require_authorization():
+                    return
+                if urlsplit(self.path).path == "/shutdown":
+                    if shutdown_callback is None:
+                        self._write_json(404, {"error": "not found"})
+                        return
+                    self._write_json(202, {"status": "stopping"})
+                    threading.Thread(target=shutdown_callback, daemon=True).start()
+                    return
                 runtime_id = self._runtime_id("call")
                 if runtime_id is None:
                     self._write_json(404, {"error": "not found"})
@@ -178,6 +205,11 @@ class RuntimeService:
                     self._write_json(500, {"error": str(exc)})
 
             def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+                if not self._require_authorization():
+                    return
+                if urlsplit(self.path).path == "/health":
+                    self._write_json(200, {"status": "ok", "service": "runtime"})
+                    return
                 runtime_id = self._runtime_id("health")
                 if runtime_id is None:
                     self._write_json(404, {"error": "not found"})

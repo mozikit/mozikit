@@ -1,6 +1,7 @@
 """Acceptance tests for persistent runtime extension infrastructure."""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -9,6 +10,9 @@ import pytest
 from src.core.node_base import CustomNode
 from src.core.runtime_base import RuntimeBase
 from src.core.runtime_host import RuntimeHost
+from src.core.runtime_client import RuntimeClient
+from src.core.runtime_daemon import RuntimeDaemon, RuntimeDaemonAlreadyRunning
+from src.core.runtime_paths import get_runtime_dir
 from src.core.runtime_manager import RuntimeManager, RuntimeService
 from src.core.runtime_registry import RuntimeRegistry
 from src.core.uv_manager import UVManager
@@ -67,17 +71,21 @@ def test_runtime_definition_dynamically_imports_echo_runtime():
     assert runtime.started is False
 
 
-def _runtime_call_workflow(name, uv_manager, service_url):
+def _runtime_call_workflow(name, uv_manager, service_url=None, token=None):
+    config = {
+        "runtime_id": "echo-1",
+        "action": "count",
+        "params": {},
+    }
+    if service_url:
+        config["runtime_url"] = service_url
+    if token:
+        config["runtime_token"] = token
     executor = WorkflowExecutor(name, uv_manager=uv_manager)
     node = CustomNode(
         "runtime-call",
         "runtime_call",
-        {
-            "runtime_id": "echo-1",
-            "action": "count",
-            "params": {},
-            "runtime_url": service_url,
-        },
+        config,
     )
     node.source_code = RUNTIME_CALL_SOURCE
     executor.add_node(node)
@@ -90,7 +98,7 @@ def test_two_workflow_runs_share_runtime_state_and_stop_with_service(tmp_path, m
     registry.load_definition(str(ECHO_DEFINITION))
     manager = RuntimeManager(registry)
     runtime = manager.start_runtime("echo", "echo-1")
-    service = RuntimeService(manager, port=0)
+    service = RuntimeService(manager, port=0, auth_token="test-token")
     service.start()
 
     uv_manager = UVManager(workspace_root=str(tmp_path / "workflows"))
@@ -101,10 +109,14 @@ def test_two_workflow_runs_share_runtime_state_and_stop_with_service(tmp_path, m
     )
 
     try:
-        first = _runtime_call_workflow("run-1", uv_manager, service.base_url).execute(
+        first = _runtime_call_workflow(
+            "run-1", uv_manager, service.base_url, "test-token"
+        ).execute(
             return_report=True
         )
-        second = _runtime_call_workflow("run-2", uv_manager, service.base_url).execute(
+        second = _runtime_call_workflow(
+            "run-2", uv_manager, service.base_url, "test-token"
+        ).execute(
             return_report=True
         )
 
@@ -146,6 +158,7 @@ def test_runtime_host_loads_config_and_persists_across_workflow_runs(
         plugin_root=str(ECHO_DEFINITION.parent),
         registry=registry,
         port=0,
+        auth_token="test-token",
     )
     host.start()
     runtime = host.manager.instances["echo-1"]
@@ -158,12 +171,12 @@ def test_runtime_host_loads_config_and_persists_across_workflow_runs(
     )
 
     try:
-        first = _runtime_call_workflow("host-run-1", uv_manager, host.base_url).execute(
-            return_report=True
-        )
-        second = _runtime_call_workflow("host-run-2", uv_manager, host.base_url).execute(
-            return_report=True
-        )
+        first = _runtime_call_workflow(
+            "host-run-1", uv_manager, host.base_url, "test-token"
+        ).execute(return_report=True)
+        second = _runtime_call_workflow(
+            "host-run-2", uv_manager, host.base_url, "test-token"
+        ).execute(return_report=True)
 
         assert first["success"] is True, first
         assert first["final_context"]["count"] == 1
@@ -184,12 +197,15 @@ def test_runtime_http_service_rejects_unknown_runtime():
     from urllib.request import Request, urlopen
 
     manager = RuntimeManager(RuntimeRegistry())
-    service = RuntimeService(manager, port=0)
+    service = RuntimeService(manager, port=0, auth_token="test-token")
     service.start()
     request = Request(
         f"{service.base_url}/runtime/missing/call",
         data=json.dumps({"action": "echo", "params": {}}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer test-token",
+        },
         method="POST",
     )
     try:
@@ -198,3 +214,84 @@ def test_runtime_http_service_rejects_unknown_runtime():
         assert exc_info.value.code == 404
     finally:
         service.stop()
+
+
+def test_runtime_service_requires_bearer_token():
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    service = RuntimeService(
+        RuntimeManager(RuntimeRegistry()), port=0, auth_token="secret"
+    )
+    service.start()
+    try:
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(Request(f"{service.base_url}/health"), timeout=5)
+        assert exc_info.value.code == 401
+    finally:
+        service.stop()
+
+
+def test_runtime_daemon_is_single_owner_and_injects_worker_connection(
+    tmp_path, monkeypatch
+):
+    runtime_dir = tmp_path / "app-data" / "runtime"
+    plugin_dir = runtime_dir / "plugins" / "echo"
+    plugin_dir.mkdir(parents=True)
+    shutil.copy2(ECHO_DEFINITION, plugin_dir / "runtime.json")
+    shutil.copy2(ECHO_DEFINITION.parent / "runtime.py", plugin_dir / "runtime.py")
+    (runtime_dir / "runtimes.json").write_text(
+        json.dumps(
+            {
+                "runtime_type": "echo",
+                "runtime_id": "echo-1",
+                "enabled": True,
+                "config": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MOZIKIT_APP_DATA_DIR", str(runtime_dir.parent))
+
+    daemon = RuntimeDaemon(runtime_dir=runtime_dir, port=0)
+    daemon.start()
+    second_daemon = RuntimeDaemon(runtime_dir=runtime_dir, port=0)
+    with pytest.raises(RuntimeDaemonAlreadyRunning):
+        second_daemon.start()
+
+    client = RuntimeClient(runtime_dir)
+    assert client.is_running() is True
+    uv_manager = UVManager(workspace_root=str(tmp_path / "workflows"))
+    monkeypatch.setattr(
+        uv_manager,
+        "_get_python_executable",
+        lambda workflow_name: Path(sys.executable),
+    )
+    runtime = daemon.host.manager.instances["echo-1"]
+    try:
+        first = _runtime_call_workflow("daemon-run-1", uv_manager).execute(
+            return_report=True
+        )
+        second = _runtime_call_workflow("daemon-run-2", uv_manager).execute(
+            return_report=True
+        )
+        assert first["final_context"]["count"] == 1
+        assert second["final_context"]["count"] == 2
+        assert runtime.started is True
+    finally:
+        daemon.stop()
+
+    assert runtime.started is False
+    assert client.is_running() is False
+
+
+def test_runtime_directory_is_independent_from_current_working_directory(
+    tmp_path, monkeypatch
+):
+    app_data = tmp_path / "app-data"
+    monkeypatch.setenv("MOZIKIT_APP_DATA_DIR", str(app_data))
+    first = get_runtime_dir()
+    other_cwd = tmp_path / "other-cwd"
+    other_cwd.mkdir()
+    monkeypatch.chdir(other_cwd)
+    assert get_runtime_dir() == first == app_data / "runtime"

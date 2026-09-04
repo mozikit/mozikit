@@ -70,6 +70,43 @@ def main_callback(
 logger = get_logger("cli")
 
 
+runtime_app = typer.Typer(help="管理持久 Runtime Daemon", no_args_is_help=True)
+app.add_typer(runtime_app, name="runtime")
+
+
+@runtime_app.command("daemon")
+def runtime_daemon():
+    """在前台运行当前用户唯一的 Runtime Daemon。"""
+    from src.core.runtime_daemon import main as run_runtime_daemon
+
+    run_runtime_daemon()
+
+
+@runtime_app.command("status")
+def runtime_status():
+    """检查 Runtime Daemon 是否运行。"""
+    from src.core.runtime_client import RuntimeClient
+
+    client = RuntimeClient()
+    if client.is_running():
+        url, _ = client.connection()
+        console.print(f"[green]运行中[/] {url}")
+        return
+    console.print("[yellow]未运行[/]")
+    raise typer.Exit(code=1)
+
+
+@runtime_app.command("stop")
+def runtime_stop():
+    """请求当前用户的 Runtime Daemon 安全退出。"""
+    from src.core.runtime_client import RuntimeClient
+
+    if RuntimeClient().stop_daemon():
+        console.print("[green]Runtime Daemon 正在停止[/]")
+        return
+    console.print("[yellow]Runtime Daemon 未运行[/]")
+
+
 # ── 敏感配置键 → ConfigManager setter 映射 ──────────
 # 这些 key 的值包含凭证（API key、token 等），必须通过 store_credential 加密存储
 _SENSITIVE_SETTERS: dict[str, str] = {
@@ -349,11 +386,10 @@ def run(
         def on_node_log(node_id: str, line: str):
             log_lines.append(f"[{node_id}] {line}")
 
-    from src.core.runtime_host import RuntimeHost
+    from src.core.runtime_client import RuntimeClient
 
-    runtime_host = RuntimeHost()
+    RuntimeClient().ensure_running()
     try:
-        runtime_host.start()
         report = executor.execute(
             initial_data=initial_data,
             return_report=True,
@@ -370,8 +406,6 @@ def run(
         else:
             console.print(json.dumps({"success": False, "error": str(e)}))
         raise typer.Exit(code=1)
-    finally:
-        runtime_host.stop()
 
     if not json_output:
         progress.stop()
@@ -639,10 +673,9 @@ def schedule_daemon(
     console.print(f"[dim]PID: {os.getpid()} -> {pid_path}[/]")
 
     mgr = HeadlessScheduler(tick_interval=tick)
-    from src.core.runtime_host import RuntimeHost
+    from src.core.runtime_client import RuntimeClient
 
-    runtime_host = RuntimeHost()
-    runtime_host.start()
+    RuntimeClient().ensure_running()
 
     # 注册任务生命周期回调
     mgr.on_task_start(lambda t: console.print(
@@ -664,7 +697,6 @@ def schedule_daemon(
         if running:
             console.print(f"\n[yellow]收到信号 ({signum})，停止调度器...[/]")
             mgr.stop()
-            runtime_host.stop()
             running = False
             pid_path.unlink(missing_ok=True)
             console.print("[green]调度器已停止[/]")
@@ -682,8 +714,6 @@ def schedule_daemon(
             _time.sleep(1)
     except KeyboardInterrupt:
         _shutdown(signal.SIGINT, None)
-    finally:
-        runtime_host.stop()
 
     raise typer.Exit(code=0)
 
@@ -2126,17 +2156,14 @@ def serve(
         raise typer.Exit(code=1)
 
     _init(verbose=True)
-    from src.core.runtime_host import RuntimeHost
+    from src.core.runtime_client import RuntimeClient
 
-    runtime_host = RuntimeHost()
+    runtime_client = RuntimeClient()
 
     @asynccontextmanager
     async def lifespan(_api):
-        runtime_host.start()
-        try:
-            yield
-        finally:
-            runtime_host.stop()
+        runtime_client.ensure_running()
+        yield
 
     api = FastAPI(
         title="Mozikit API",

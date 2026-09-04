@@ -6,11 +6,12 @@ import json
 import os
 from pathlib import Path
 from threading import RLock
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 from .log_manager import get_logger
 from .runtime_manager import RuntimeManager, RuntimeService
 from .runtime_registry import RuntimeRegistry, runtime_registry
+from .runtime_paths import get_runtime_dir
 
 logger = get_logger("runtime_host")
 
@@ -18,8 +19,8 @@ logger = get_logger("runtime_host")
 class RuntimeHost:
     """Own all runtime infrastructure for one Mozikit process.
 
-    Runtime plugins are discovered from ``user_data/runtimes/**/runtime.json``.
-    Runtime instances are loaded from ``user_data/runtimes.json`` by default.
+    Runtime plugins and instance configuration come from the stable per-user
+    Mozikit app-data runtime directory.
     Both locations can be overridden for embedding and tests.
     """
 
@@ -31,14 +32,17 @@ class RuntimeHost:
         host: Optional[str] = None,
         port: Optional[int] = None,
         definition_paths: Optional[Iterable[str]] = None,
+        auth_token: str = "",
+        shutdown_callback: Optional[Callable[[], None]] = None,
     ) -> None:
+        runtime_dir = get_runtime_dir()
         self.config_path = Path(
             config_path
-            or os.environ.get("MOZIKIT_RUNTIME_CONFIG", "user_data/runtimes.json")
+            or os.environ.get("MOZIKIT_RUNTIME_CONFIG", str(runtime_dir / "runtimes.json"))
         )
         self.plugin_root = Path(
             plugin_root
-            or os.environ.get("MOZIKIT_RUNTIME_PLUGIN_DIR", "user_data/runtimes")
+            or os.environ.get("MOZIKIT_RUNTIME_PLUGIN_DIR", str(runtime_dir / "plugins"))
         )
         self.registry = registry or runtime_registry
         self.manager = RuntimeManager(self.registry)
@@ -46,7 +50,15 @@ class RuntimeHost:
         service_port = port
         if service_port is None:
             service_port = int(os.environ.get("MOZIKIT_RUNTIME_PORT", "48765"))
-        self.service = RuntimeService(self.manager, service_host, service_port)
+        if not auth_token:
+            raise ValueError("RuntimeHost requires an IPC authentication token")
+        self.service = RuntimeService(
+            self.manager,
+            service_host,
+            service_port,
+            auth_token=auth_token,
+            shutdown_callback=shutdown_callback,
+        )
         self.definition_paths = [Path(path) for path in (definition_paths or [])]
         self._started = False
         self._lock = RLock()

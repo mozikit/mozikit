@@ -14,12 +14,17 @@ def execute(self, input_data):
     params = input_data.get("params", config.get("params", {}))
     base_url = input_data.get(
         "runtime_url",
-        config.get("runtime_url")
-        or os.environ.get("MOZIKIT_RUNTIME_URL", "http://127.0.0.1:48765"),
+        config.get("runtime_url") or os.environ.get("MOZIKIT_RUNTIME_URL", ""),
     ).rstrip("/")
+    token = input_data.get(
+        "runtime_token",
+        config.get("runtime_token") or os.environ.get("MOZIKIT_RUNTIME_TOKEN", ""),
+    )
 
-    if not runtime_id or not action:
-        raise ValueError("runtime_id and action are required")
+    if not runtime_id or not action or not base_url or not token:
+        raise ValueError(
+            "runtime_id, action, and Runtime Daemon connection are required"
+        )
     if not isinstance(params, dict):
         raise TypeError("params must be an object")
 
@@ -28,7 +33,10 @@ def execute(self, input_data):
     request = Request(
         url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
         method="POST",
     )
     try:

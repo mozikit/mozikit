@@ -2,7 +2,10 @@ import sys
 
 
 # 已知 CLI 子命令（与 src/cli.py 保持一致）
-_CLI_COMMANDS = {"run", "schedule", "env", "node", "config", "workflow", "serve", "help"}
+_CLI_COMMANDS = {
+    "run", "schedule", "env", "node", "config", "workflow", "runtime",
+    "serve", "help",
+}
 
 
 def _is_cli_mode() -> bool:
