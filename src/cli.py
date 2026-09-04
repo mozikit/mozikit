@@ -25,7 +25,7 @@ from rich.status import Status
 from rich import box
 
 from src.core.log_manager import init_logging, get_logger
-from src.core.workflow_executor import WorkflowExecutor
+from src.core.workflow_executor import WorkflowExecutor, write_workflow_file
 from src.core.workflow_run_dispatcher import (
     WorkflowRunCallbacks,
     WorkflowRunDispatcher,
@@ -95,6 +95,11 @@ def runtime_status():
     if client.is_running():
         url, _ = client.connection()
         console.print(f"[green]运行中[/] {url}")
+        trigger_status = client.trigger_status()
+        console.print(
+            f"Triggers: desired={len(trigger_status.get('desired', []))}, "
+            f"running={len(trigger_status.get('actual', {}))}"
+        )
         return
     console.print("[yellow]未运行[/]")
     raise typer.Exit(code=1)
@@ -1515,6 +1520,47 @@ def workflow_list(
             (wf.get("updated_at") or "")[:19],
         )
     console.print(table)
+
+
+def _set_workflow_activation(workflow_path: str, active: bool) -> dict:
+    path = Path(workflow_path).expanduser().resolve()
+    if not path.is_file():
+        console.print(f"[red]错误:[/] 工作流文件不存在: {path}")
+        raise typer.Exit(code=1)
+    try:
+        workspace = resolve_workspace().expanduser().resolve()
+        if not path.is_relative_to(workspace):
+            raise ValueError("工作流必须位于当前 workspace 中")
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if active and not document.get("triggers"):
+            raise ValueError("工作流没有配置 Trigger")
+        if "workflow_id" not in document:
+            import uuid
+
+            document["workflow_id"] = str(uuid.uuid4())
+        document["active"] = active
+        write_workflow_file(str(path), document)
+        return document
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        console.print(f"[red]错误:[/] 更新工作流激活状态失败: {exc}")
+        raise typer.Exit(code=1)
+
+
+@workflow_app.command("activate")
+def workflow_activate(workflow_path: str = typer.Argument(..., help="工作流文件路径")):
+    """激活工作流的持久 Trigger。"""
+    _set_workflow_activation(workflow_path, True)
+    from src.core.runtime_client import RuntimeClient
+
+    RuntimeClient().ensure_running(required=True)
+    console.print("[green]工作流已激活[/]")
+
+
+@workflow_app.command("deactivate")
+def workflow_deactivate(workflow_path: str = typer.Argument(..., help="工作流文件路径")):
+    """停用工作流的持久 Trigger。"""
+    _set_workflow_activation(workflow_path, False)
+    console.print("[yellow]工作流已停用[/]")
 
 
 @workflow_app.command("validate")

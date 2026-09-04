@@ -12,6 +12,10 @@ from .log_manager import get_logger
 from .runtime_manager import RuntimeManager, RuntimeService
 from .runtime_registry import RuntimeRegistry, runtime_registry
 from .runtime_paths import get_runtime_dir
+from .test_trigger import TestTrigger
+from .trigger_manager import TriggerManager
+from .trigger_registry import trigger_registry
+from . import resolve_workspace
 
 logger = get_logger("runtime_host")
 
@@ -35,8 +39,14 @@ class RuntimeHost:
         auth_token: str = "",
         shutdown_callback: Optional[Callable[[], None]] = None,
         health_metadata: Optional[dict] = None,
+        workflows_dir: Optional[str] = None,
+        trigger_manager: Optional[TriggerManager] = None,
     ) -> None:
-        runtime_dir = get_runtime_dir()
+        runtime_dir = (
+            Path(config_path).expanduser().resolve().parent
+            if config_path
+            else get_runtime_dir()
+        )
         self.config_path = Path(
             config_path
             or os.environ.get("MOZIKIT_RUNTIME_CONFIG", str(runtime_dir / "runtimes.json"))
@@ -62,6 +72,12 @@ class RuntimeHost:
             health_metadata=health_metadata,
         )
         self.definition_paths = [Path(path) for path in (definition_paths or [])]
+        trigger_registry.register("test", TestTrigger)
+        self.trigger_manager = trigger_manager or TriggerManager(
+            workflows_dir or str(resolve_workspace()),
+            state_path=runtime_dir / "trigger-state.json",
+        )
+        self.service.trigger_status_provider = self.trigger_manager.status
         self._started = False
         self._lock = RLock()
 
@@ -148,6 +164,7 @@ class RuntimeHost:
                             instance["config"],
                         )
                 self.service.start()
+                self.trigger_manager.start()
                 self._started = True
                 logger.info(
                     "Runtime Host started at %s with %d instance(s)",
@@ -155,6 +172,7 @@ class RuntimeHost:
                     len(self.manager.instances),
                 )
             except Exception:
+                self.trigger_manager.stop()
                 self.service.stop()
                 self.manager.stop_all()
                 raise
@@ -164,19 +182,26 @@ class RuntimeHost:
         with self._lock:
             if not self._started and not self.manager.instances:
                 return
-            service_error = None
+            errors = []
+            try:
+                self.trigger_manager.stop()
+            except Exception as exc:
+                errors.append(("triggers", exc))
             try:
                 self.service.stop()
             except Exception as exc:
-                service_error = exc
+                errors.append(("service", exc))
             finally:
                 try:
                     self.manager.stop_all()
+                except Exception as exc:
+                    errors.append(("runtimes", exc))
                 finally:
                     self._started = False
                     logger.info("Runtime Host stopped")
-            if service_error is not None:
-                raise service_error
+            if errors:
+                details = ", ".join(f"{owner}: {exc}" for owner, exc in errors)
+                raise RuntimeError(f"failed to stop Runtime Host: {details}")
 
     def __enter__(self) -> "RuntimeHost":
         self.start()

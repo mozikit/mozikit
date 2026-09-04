@@ -863,6 +863,14 @@ class OverviewWidget(QWidget):
                     workflow_data = json.load(f)
 
                 workflow_widget = WorkflowTabWidget(workflow_name, self._main_window)
+                workflow_widget.executor.workflow_id = workflow_data.get(
+                    "workflow_id", workflow_widget.executor.workflow_id
+                )
+                workflow_widget.executor.active = workflow_data.get("active", False) is True
+                triggers = workflow_data.get("triggers", [])
+                workflow_widget.executor.triggers = (
+                    triggers if isinstance(triggers, list) else []
+                )
                 workflow_widget.modified_changed.connect(
                     self._main_window._on_workflow_modified
                 )

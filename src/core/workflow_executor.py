@@ -74,6 +74,9 @@ class WorkflowExecutor:
             config_manager: 配置管理器实例（用于读取超时设置）
         """
         self.workflow_name = workflow_name
+        self.workflow_id = str(uuid.uuid4())
+        self.active = False
+        self.triggers: List[dict] = []
         self.uv_manager = uv_manager or UVManager()
         from src.core.config_manager import ConfigManager
 
@@ -977,7 +980,10 @@ class WorkflowExecutor:
         """
         workflow_data = {
             "version": 2,
+            "workflow_id": self.workflow_id,
             "workflow_name": self.workflow_name,
+            "active": self.active,
+            "triggers": self.triggers,
             "nodes": [],
             "edges": [
                 {
@@ -1024,6 +1030,10 @@ class WorkflowExecutor:
             workflow_data = json.load(f)
 
         executor = cls(workflow_data["workflow_name"], uv_manager)
+        executor.workflow_id = workflow_data.get("workflow_id", executor.workflow_id)
+        executor.active = workflow_data.get("active", False) is True
+        triggers = workflow_data.get("triggers", [])
+        executor.triggers = triggers if isinstance(triggers, list) else []
 
         for node_data in workflow_data["nodes"]:
             node = NodeBase.from_dict(node_data)

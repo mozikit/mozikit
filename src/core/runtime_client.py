@@ -26,7 +26,20 @@ class RuntimeClient:
         if os.path.isfile(self.runtime_dir / "runtimes.json"):
             return True
         plugin_root = self.runtime_dir / "plugins"
-        return plugin_root.is_dir() and next(plugin_root.rglob("runtime.json"), None) is not None
+        if plugin_root.is_dir() and next(plugin_root.rglob("runtime.json"), None) is not None:
+            return True
+        from src.core import resolve_workspace
+
+        workspace = resolve_workspace()
+        if workspace.is_dir():
+            for path in workspace.rglob("workflow.json"):
+                try:
+                    document = json.loads(path.read_text(encoding="utf-8"))
+                    if document.get("active") is True and document.get("triggers"):
+                        return True
+                except (OSError, json.JSONDecodeError, AttributeError):
+                    continue
+        return False
 
     def connection_document(self) -> dict:
         with self.connection_path.open("r", encoding="utf-8") as stream:
@@ -103,6 +116,11 @@ class RuntimeClient:
                 raise RuntimeError("Incompatible Runtime Daemon did not stop")
 
         kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        from src.core import resolve_workspace
+
+        daemon_env = os.environ.copy()
+        daemon_env["MOZIKIT_WORKSPACE"] = str(resolve_workspace().resolve())
+        kwargs["env"] = daemon_env
         if os.name == "nt":
             kwargs["creationflags"] = 0x08000000 | 0x00000008
         else:
@@ -155,3 +173,12 @@ class RuntimeClient:
             "MOZIKIT_RUNTIME_URL": url,
             "MOZIKIT_RUNTIME_TOKEN": token,
         }
+
+    def trigger_status(self) -> dict:
+        url, token = self.connection()
+        request = Request(
+            f"{url}/triggers/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with urlopen(request, timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))

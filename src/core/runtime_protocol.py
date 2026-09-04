@@ -34,8 +34,11 @@ def desired_state_fingerprint(runtime_dir: Path) -> str:
 
 
 def expected_identity(runtime_dir: Path) -> dict:
+    from src.core import resolve_workspace
+
     return {
         "protocol_version": RUNTIME_PROTOCOL_VERSION,
         "mozikit_version": __version__,
         "desired_state_fingerprint": desired_state_fingerprint(runtime_dir),
+        "workspace": str(resolve_workspace().resolve()),
     }

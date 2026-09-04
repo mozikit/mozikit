@@ -113,6 +113,7 @@ class RuntimeService:
         auth_token: str = "",
         shutdown_callback: Optional[Callable[[], None]] = None,
         health_metadata: Optional[dict] = None,
+        trigger_status_provider: Optional[Callable[[], dict]] = None,
     ) -> None:
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("the first runtime service version only supports localhost")
@@ -122,6 +123,7 @@ class RuntimeService:
         self.auth_token = auth_token
         self.shutdown_callback = shutdown_callback
         self.health_metadata = dict(health_metadata or {})
+        self.trigger_status_provider = trigger_status_provider
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -146,6 +148,7 @@ class RuntimeService:
         auth_token = self.auth_token
         shutdown_callback = self.shutdown_callback
         health_metadata = self.health_metadata
+        trigger_status_provider = self.trigger_status_provider
 
         class Handler(BaseHTTPRequestHandler):
             def _write_json(self, status: int, payload: dict) -> None:
@@ -219,6 +222,12 @@ class RuntimeService:
                             **health_metadata,
                         },
                     )
+                    return
+                if urlsplit(self.path).path == "/triggers/status":
+                    if trigger_status_provider is None:
+                        self._write_json(404, {"error": "not found"})
+                    else:
+                        self._write_json(200, trigger_status_provider())
                     return
                 runtime_id = self._runtime_id("health")
                 if runtime_id is None:
