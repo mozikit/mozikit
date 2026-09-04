@@ -63,6 +63,10 @@ class TestCLIModeDetection(unittest.TestCase):
         with patch("sys.argv", ["main.py", "serve"]):
             self.assertTrue(_is_cli_mode())
 
+    def test_runtime_daemon_subcommand_returns_true(self):
+        with patch("sys.argv", ["Mozikit.exe", "runtime", "daemon"]):
+            self.assertTrue(_is_cli_mode())
+
     def test_unknown_command_returns_false(self):
         """未知命令应返回 False（走 GUI 模式并让 PySide6 报错）"""
         with patch("sys.argv", ["main.py", "unknown_cmd"]):

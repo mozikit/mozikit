@@ -4,6 +4,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -295,3 +296,94 @@ def test_runtime_directory_is_independent_from_current_working_directory(
     other_cwd.mkdir()
     monkeypatch.chdir(other_cwd)
     assert get_runtime_dir() == first == app_data / "runtime"
+
+
+def test_frozen_runtime_client_uses_packaged_cli_command(tmp_path):
+    client = RuntimeClient(tmp_path)
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(sys, "frozen", True, raising=False)
+        patcher.setattr(sys, "executable", "C:/Program Files/Mozikit/Mozikit.exe")
+        assert client._daemon_command() == [
+            "C:/Program Files/Mozikit/Mozikit.exe",
+            "runtime",
+            "daemon",
+        ]
+
+
+def test_runtime_client_rejects_changed_desired_state(tmp_path):
+    runtime_dir = tmp_path / "runtime"
+    plugin_dir = runtime_dir / "plugins" / "echo"
+    plugin_dir.mkdir(parents=True)
+    shutil.copy2(ECHO_DEFINITION, plugin_dir / "runtime.json")
+    shutil.copy2(ECHO_DEFINITION.parent / "runtime.py", plugin_dir / "runtime.py")
+    config_path = runtime_dir / "runtimes.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "runtime_type": "echo",
+                "runtime_id": "echo-1",
+                "enabled": True,
+                "config": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    daemon = RuntimeDaemon(runtime_dir=runtime_dir, port=0)
+    daemon.start()
+    client = RuntimeClient(runtime_dir)
+    try:
+        assert client.is_running() is True
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8") + "\n",
+            encoding="utf-8",
+        )
+        assert client.is_alive() is True
+        assert client.is_running() is False
+    finally:
+        daemon.stop()
+
+
+def test_runtime_client_rejects_daemon_version_mismatch(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    daemon = RuntimeDaemon(runtime_dir=runtime_dir, port=0)
+    daemon.start()
+    client = RuntimeClient(runtime_dir)
+    try:
+        assert client.is_running() is True
+        monkeypatch.setattr(
+            "src.core.runtime_client.expected_identity",
+            lambda path: {
+                "protocol_version": 1,
+                "mozikit_version": "future-version",
+                "desired_state_fingerprint": "future-state",
+            },
+        )
+        assert client.is_alive() is True
+        assert client.is_running() is False
+    finally:
+        daemon.stop()
+
+
+def test_runtime_client_reports_early_daemon_start_failure(tmp_path):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "runtimes.json").write_text("{}", encoding="utf-8")
+    (runtime_dir / "startup-error.json").write_text(
+        json.dumps({"error_type": "ImportError", "message": "plugin import failed"}),
+        encoding="utf-8",
+    )
+    process = Mock()
+    process.poll.return_value = 1
+    client = RuntimeClient(runtime_dir)
+    with patch("src.core.runtime_client.subprocess.Popen", return_value=process):
+        # ensure_running clears stale startup errors; emulate the child publishing one.
+        def publish_error():
+            (runtime_dir / "startup-error.json").write_text(
+                json.dumps({"message": "plugin import failed"}), encoding="utf-8"
+            )
+            return 1
+
+        process.poll.side_effect = publish_error
+        with pytest.raises(RuntimeError, match="plugin import failed"):
+            client.ensure_running(timeout=5)

@@ -34,6 +34,7 @@ class RuntimeHost:
         definition_paths: Optional[Iterable[str]] = None,
         auth_token: str = "",
         shutdown_callback: Optional[Callable[[], None]] = None,
+        health_metadata: Optional[dict] = None,
     ) -> None:
         runtime_dir = get_runtime_dir()
         self.config_path = Path(
@@ -58,6 +59,7 @@ class RuntimeHost:
             service_port,
             auth_token=auth_token,
             shutdown_callback=shutdown_callback,
+            health_metadata=health_metadata,
         )
         self.definition_paths = [Path(path) for path in (definition_paths or [])]
         self._started = False

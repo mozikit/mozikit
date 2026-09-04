@@ -8,6 +8,7 @@ import secrets
 import signal
 import sys
 import threading
+import traceback
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,7 @@ from typing import Optional
 from ._file_utils import atomic_write, atomic_write_json_sync
 from .runtime_host import RuntimeHost
 from .runtime_paths import get_runtime_dir
+from .runtime_protocol import expected_identity
 
 
 class RuntimeDaemonAlreadyRunning(RuntimeError):
@@ -79,6 +81,7 @@ class RuntimeDaemon:
         self.runtime_dir = runtime_dir or get_runtime_dir()
         self.connection_path = self.runtime_dir / "connection.json"
         self.token_path = self.runtime_dir / "auth.token"
+        self.startup_error_path = self.runtime_dir / "startup-error.json"
         self.lock = RuntimeDaemonLock(self.runtime_dir / "daemon.lock")
         self.port = (
             int(os.environ.get("MOZIKIT_RUNTIME_PORT", "0"))
@@ -92,6 +95,8 @@ class RuntimeDaemon:
         self.lock.acquire()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         token = secrets.token_urlsafe(32)
+        instance_id = uuid.uuid4().hex
+        identity = {**expected_identity(self.runtime_dir), "instance_id": instance_id}
         try:
             atomic_write(self.token_path, token)
             try:
@@ -104,6 +109,7 @@ class RuntimeDaemon:
                 port=self.port,
                 auth_token=token,
                 shutdown_callback=self.shutdown_callback,
+                health_metadata=identity,
             )
             self.host.start()
             atomic_write_json_sync(
@@ -111,9 +117,10 @@ class RuntimeDaemon:
                 {
                     "url": self.host.base_url,
                     "pid": os.getpid(),
-                    "instance_id": uuid.uuid4().hex,
+                    **identity,
                 },
             )
+            self.startup_error_path.unlink(missing_ok=True)
         except Exception:
             self.stop()
             raise
@@ -149,6 +156,17 @@ def main() -> None:
     except RuntimeDaemonAlreadyRunning as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2)
+    except Exception as exc:
+        atomic_write_json_sync(
+            daemon.startup_error_path,
+            {
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+                "traceback": traceback.format_exc(),
+            },
+        )
+        print(f"Runtime Daemon startup failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     finally:
         daemon.stop()
 

@@ -112,6 +112,7 @@ class RuntimeService:
         port: int = 48765,
         auth_token: str = "",
         shutdown_callback: Optional[Callable[[], None]] = None,
+        health_metadata: Optional[dict] = None,
     ) -> None:
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("the first runtime service version only supports localhost")
@@ -120,6 +121,7 @@ class RuntimeService:
         self.port = port
         self.auth_token = auth_token
         self.shutdown_callback = shutdown_callback
+        self.health_metadata = dict(health_metadata or {})
         self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
@@ -143,6 +145,7 @@ class RuntimeService:
         max_request_bytes = self.MAX_REQUEST_BYTES
         auth_token = self.auth_token
         shutdown_callback = self.shutdown_callback
+        health_metadata = self.health_metadata
 
         class Handler(BaseHTTPRequestHandler):
             def _write_json(self, status: int, payload: dict) -> None:
@@ -208,7 +211,14 @@ class RuntimeService:
                 if not self._require_authorization():
                     return
                 if urlsplit(self.path).path == "/health":
-                    self._write_json(200, {"status": "ok", "service": "runtime"})
+                    self._write_json(
+                        200,
+                        {
+                            "status": "ok",
+                            "service": "runtime",
+                            **health_metadata,
+                        },
+                    )
                     return
                 runtime_id = self._runtime_id("health")
                 if runtime_id is None:
