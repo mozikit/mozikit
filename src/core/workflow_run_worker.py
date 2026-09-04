@@ -4,6 +4,8 @@
 """
 from PySide6.QtCore import QThread, Signal
 
+from .workflow_run_dispatcher import WorkflowRunCallbacks, WorkflowRunDispatcher
+
 
 class WorkflowRunWorker(QThread):
     """
@@ -35,6 +37,8 @@ class WorkflowRunWorker(QThread):
         trigger_type: str = "manual",
         prepare_env: bool = True,
         skip_successful_nodes: bool = False,
+        workflow_path: str = "",
+        config_manager=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -42,32 +46,32 @@ class WorkflowRunWorker(QThread):
         self.trigger_type = trigger_type
         self.prepare_env = prepare_env
         self.skip_successful_nodes = skip_successful_nodes
+        self.workflow_path = workflow_path
+        self.dispatcher = WorkflowRunDispatcher(
+            config_manager=config_manager or executor.config_manager
+        )
 
     def request_stop(self):
         self.executor.request_stop()
 
     def run(self):
         try:
-            if self.prepare_env:
-                self.environment_preparing.emit()
-                env_success = self.executor.prepare_environment()
-                if not env_success:
-                    error_msg = "环境准备失败，请检查UV安装和依赖配置"
-                    self.environment_ready.emit(False, error_msg)
-                    self.error.emit(error_msg)
-                    return
-                self.environment_ready.emit(True, "")
-
-            report = self.executor.execute(
-                return_report=True,
+            result = self.dispatcher.dispatch_executor(
+                self.executor,
+                workflow_path=self.workflow_path,
                 trigger_type=self.trigger_type,
-                on_node_start=self._on_node_start,
-                on_node_complete=self._on_node_complete,
-                on_node_progress=self._on_node_progress,
-                on_node_log=self._on_node_log,
+                prepare_environment=self.prepare_env,
                 skip_successful_nodes=self.skip_successful_nodes,
+                callbacks=WorkflowRunCallbacks(
+                    on_environment_preparing=self.environment_preparing.emit,
+                    on_environment_ready=self.environment_ready.emit,
+                    on_node_start=self._on_node_start,
+                    on_node_complete=self._on_node_complete,
+                    on_node_progress=self._on_node_progress,
+                    on_node_log=self._on_node_log,
+                ),
             )
-            self.finished_with_report.emit(report)
+            self.finished_with_report.emit(result.report)
         except Exception as e:
             self.error.emit(str(e))
 

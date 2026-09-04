@@ -8,15 +8,12 @@ import threading
 import uuid
 import time
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Callable, Optional
-
-from src.core.exceptions import ErrorCode, LocalFlowError
 
 from .config_manager import ConfigManager
 from .cron_utils import CronUtils
 from .log_manager import get_logger
-from .workflow_executor import WorkflowExecutor
+from .workflow_run_dispatcher import WorkflowRunDispatcher
 
 logger = get_logger("headless_scheduler")
 
@@ -42,6 +39,7 @@ class HeadlessScheduler:
             tick_interval: 轮询间隔（秒），默认 10
         """
         self.config_manager = config_manager or ConfigManager()
+        self.dispatcher = WorkflowRunDispatcher(config_manager=self.config_manager)
         self.tick_interval = tick_interval
 
         self._running = False
@@ -239,22 +237,14 @@ class HeadlessScheduler:
 
         def _run():
             try:
-                if not Path(workflow_path).exists():
-                    raise LocalFlowError(ErrorCode.FILE_NOT_FOUND, f"工作流文件不存在: {workflow_path}")
-
-                executor = WorkflowExecutor.load_workflow(workflow_path)
-                logger.info(
-                    "执行定时任务: %s (%s)", task_id, executor.workflow_name
-                )
-                report = executor.execute(
-                    return_report=True, trigger_type="scheduled"
-                )
-                record = executor.build_execution_record(
-                    report,
-                    workflow_path=workflow_path,
+                logger.info("执行定时任务: %s (%s)", task_id, workflow_path)
+                result = self.dispatcher.dispatch(
+                    workflow_path,
                     trigger_type="scheduled",
+                    workflow_name=task.get("workflow_name"),
                 )
-                self.config_manager.add_execution_record(record)
+                report = result.report
+                record = result.record
 
                 if report.get("success"):
                     logger.info("定时任务完成: %s", task_id)
@@ -274,19 +264,6 @@ class HeadlessScheduler:
 
             except Exception as e:
                 logger.exception("定时任务异常: %s", task_id)
-                record = {
-                    "id": str(uuid.uuid4())[:8],
-                    "workflow_name": task.get("workflow_name"),
-                    "workflow_path": workflow_path,
-                    "status": "failed",
-                    "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "duration_ms": 0,
-                    "output": None,
-                    "error": str(e),
-                    "trigger_type": "scheduled",
-                }
-                self.config_manager.add_execution_record(record)
                 if self._on_task_failed:
                     try:
                         self._on_task_failed(task, str(e))

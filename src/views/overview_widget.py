@@ -808,20 +808,14 @@ class OverviewWidget(QWidget):
             return
 
         try:
-            from src.core.uv_manager import UVManager
-            from src.core.workflow_executor import WorkflowExecutor
+            from src.core.workflow_run_dispatcher import WorkflowRunDispatcher
 
-            uv_manager = UVManager()
-            executor = WorkflowExecutor.load_workflow(workflow_path, uv_manager)
-            report = executor.execute(return_report=True, trigger_type="manual")
-
-            # 添加执行记录
-            record = executor.build_execution_record(
-                report,
-                workflow_path=workflow_path,
+            report = WorkflowRunDispatcher(
+                config_manager=self.config_manager
+            ).run(
+                workflow_path,
                 trigger_type="manual",
             )
-            self.config_manager.add_execution_record(record)
 
             # 刷新显示
             self._load_workflows()

@@ -26,6 +26,10 @@ from rich import box
 
 from src.core.log_manager import init_logging, get_logger
 from src.core.workflow_executor import WorkflowExecutor
+from src.core.workflow_run_dispatcher import (
+    WorkflowRunCallbacks,
+    WorkflowRunDispatcher,
+)
 from src.core.headless_scheduler import HeadlessScheduler
 from src.core.config_manager import ConfigManager
 from src.core.node_base import NodeBase
@@ -172,7 +176,9 @@ def _init(verbose: bool = False):
                 h.setLevel(logging.DEBUG)
 
 
-def _load_workflow(path_str: str) -> WorkflowExecutor:
+def _load_workflow(
+    path_str: str, dispatcher: Optional[WorkflowRunDispatcher] = None
+) -> WorkflowExecutor:
     """加载工作流文件，失败时退出进程"""
     path = Path(path_str)
     if not path.exists():
@@ -183,7 +189,7 @@ def _load_workflow(path_str: str) -> WorkflowExecutor:
         raise typer.Exit(code=1)
 
     try:
-        executor = WorkflowExecutor.load_workflow(str(path))
+        executor = (dispatcher or WorkflowRunDispatcher()).load_workflow(str(path))
         return executor
     except Exception as e:
         console.print(f"[red]错误:[/] 加载工作流失败: {e}")
@@ -272,7 +278,8 @@ def run(
         console.print("  用法: mozikit run <path> 或 mozikit run --name <name>")
         raise typer.Exit(code=1)
 
-    executor = _load_workflow(resolved_path)
+    dispatcher = WorkflowRunDispatcher()
+    executor = _load_workflow(resolved_path, dispatcher)
 
     total_nodes = len(executor.nodes)
 
@@ -301,23 +308,12 @@ def run(
         console.print(f"[bold]工作流:[/] {executor.workflow_name}")
         console.print(f"[bold]节点数:[/] {total_nodes}")
 
-    # 环境准备
-    with Status("[bold yellow]准备执行环境...[/]", console=console) as status:
-        env_success = executor.prepare_environment()
-        if not env_success:
-            msg = "环境准备失败，请检查 UV 安装和依赖配置"
-            if json_output:
-                console.print(json.dumps({"success": False, "error": msg}))
-            else:
-                console.print(f"[red]错误:[/] {msg}")
-            raise typer.Exit(code=1)
-        if not json_output:
-            status.update("[green]环境准备完成[/]")
-
     # 执行进度
     completed_nodes = 0
     failed_nodes = []
     log_lines: list[str] = []
+    progress_started = False
+    status = None
 
     if not json_output:
         progress = Progress(
@@ -334,6 +330,16 @@ def run(
             f"[cyan]执行中 0/{total_nodes}",
             total=total_nodes,
         )
+
+        status = Status("[bold yellow]准备执行环境...[/]", console=console)
+        status.start()
+
+        def on_environment_ready(success: bool, error_message: str):
+            nonlocal progress_started
+            status.stop()
+            if success:
+                progress.start()
+                progress_started = True
 
         def on_node_start(node_id: str):
             progress.update(task_id, description=f"[cyan]▶ {node_id}")
@@ -371,7 +377,6 @@ def run(
             if verbose:
                 console.print(f"  [dim]{node_id}:[/] {line}")
 
-        progress.start()
     else:
         # JSON mode: silent execution, collect logs
         def on_node_start(node_id: str): pass
@@ -386,29 +391,37 @@ def run(
         def on_node_log(node_id: str, line: str):
             log_lines.append(f"[{node_id}] {line}")
 
-    from src.core.runtime_client import RuntimeClient
+        def on_environment_ready(success: bool, error_message: str): pass
 
-    RuntimeClient().ensure_running()
     try:
-        report = executor.execute(
-            initial_data=initial_data,
-            return_report=True,
+        result = dispatcher.dispatch_executor(
+            executor,
+            workflow_path=resolved_path,
             trigger_type="cli",
-            on_node_start=on_node_start,
-            on_node_complete=on_node_complete,
-            on_node_progress=on_node_progress,
-            on_node_log=on_node_log,
+            initial_data=initial_data,
+            callbacks=WorkflowRunCallbacks(
+                on_environment_ready=on_environment_ready,
+                on_node_start=on_node_start,
+                on_node_complete=on_node_complete,
+                on_node_progress=on_node_progress,
+                on_node_log=on_node_log,
+            ),
         )
+        report = result.report
     except Exception as e:
         if not json_output:
-            progress.stop()
+            if status is not None:
+                status.stop()
+            if progress_started:
+                progress.stop()
             console.print(f"\n[red]错误:[/] 工作流执行异常: {e}")
         else:
             console.print(json.dumps({"success": False, "error": str(e)}))
         raise typer.Exit(code=1)
 
     if not json_output:
-        progress.stop()
+        if progress_started:
+            progress.stop()
         print()
 
     # JSON 模式输出
@@ -2202,21 +2215,15 @@ def serve(
             raise HTTPException(404, f"工作流文件不存在: {path}")
 
         try:
-            executor = WorkflowExecutor.load_workflow(str(wf_path))
-            env_ok = executor.prepare_environment()
-            if not env_ok:
-                raise HTTPException(500, "环境准备失败")
-
             initial = json.loads(input_data) if input_data else {}
             _api_logs = []
-            report = executor.execute(
-                initial_data=initial,
-                return_report=True,
+            report = WorkflowRunDispatcher().run(
+                str(wf_path),
                 trigger_type="api",
-                on_node_start=lambda n: None,
-                on_node_complete=lambda r: None,
-                on_node_progress=lambda n, p, m: None,
-                on_node_log=lambda n, l: _api_logs.append(f"[{n}] {l}"),
+                initial_data=initial,
+                callbacks=WorkflowRunCallbacks(
+                    on_node_log=lambda n, line: _api_logs.append(f"[{n}] {line}")
+                ),
             )
             return {
                 "success": report.get("success", False),

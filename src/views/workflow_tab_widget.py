@@ -447,17 +447,6 @@ class WorkflowTabWidget(QWidget):
             )
         logger.info("%s", status_message)
 
-    def _record_execution_history(self, report: dict, trigger_type: str = "manual"):
-        """写入首页运行历史"""
-        if not self.main_window or not hasattr(self.main_window, "config_manager"):
-            return
-
-        workflow_path = f"workflows/{self.workflow_name}/workflow.json"
-        record = self.executor.build_execution_record(
-            report, workflow_path=workflow_path, trigger_type=trigger_type
-        )
-        self.main_window.config_manager.add_execution_record(record)
-
     def execute_single_node(self, node_id: str):
         """执行单个节点及其必需上游节点（后台线程，不阻塞UI）"""
         if node_id not in self.nodes:
@@ -497,6 +486,8 @@ class WorkflowTabWidget(QWidget):
             trigger_type="manual",
             prepare_env=True,
             skip_successful_nodes=True,
+            workflow_path=f"workflows/{self.workflow_name}/workflow.json",
+            config_manager=getattr(self.main_window, "config_manager", None),
             parent=self,
         )
         self._run_worker.node_started.connect(self._on_node_started)
@@ -519,7 +510,6 @@ class WorkflowTabWidget(QWidget):
         """单节点执行完成"""
         target_node.set_executing(False)
         self._apply_run_report(report)
-        self._record_execution_history(report)
 
         if self.main_window and hasattr(self.main_window, "execution_results"):
             self.main_window.execution_results.finish_streaming(report)
@@ -579,7 +569,12 @@ class WorkflowTabWidget(QWidget):
             self.main_window.execution_results_dock.show()
 
         self._run_worker = WorkflowRunWorker(
-            self.executor, trigger_type="manual", prepare_env=True, parent=self
+            self.executor,
+            trigger_type="manual",
+            prepare_env=True,
+            workflow_path=f"workflows/{self.workflow_name}/workflow.json",
+            config_manager=getattr(self.main_window, "config_manager", None),
+            parent=self,
         )
         self._run_worker.node_started.connect(self._on_node_started)
         self._run_worker.node_completed.connect(self._on_node_completed)
@@ -660,7 +655,6 @@ class WorkflowTabWidget(QWidget):
     def _on_workflow_finished(self, report: dict):
         """工作流执行完成"""
         self._apply_run_report(report)
-        self._record_execution_history(report)
 
         if self.main_window and hasattr(self.main_window, "execution_results"):
             self.main_window.execution_results.finish_streaming(report)

@@ -6,7 +6,6 @@
 import threading
 import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Callable, List, Tuple
 
 from PySide6.QtCore import QTimer, Signal, QObject
@@ -16,7 +15,7 @@ from .uv_manager import UVManager
 from .log_manager import get_logger
 
 logger = get_logger("scheduler_manager")
-from .workflow_executor import WorkflowExecutor
+from .workflow_run_dispatcher import WorkflowRunDispatcher
 
 
 from .cron_utils import CronUtils
@@ -38,6 +37,7 @@ class SchedulerManager(QObject):
         super().__init__()
         self.config_manager = config_manager or ConfigManager()
         self.uv_manager = UVManager()
+        self.dispatcher = WorkflowRunDispatcher(config_manager=self.config_manager)
 
         self._timers = {}  # task_id -> QTimer
         self._running_tasks = {}  # task_id -> bool
@@ -88,22 +88,14 @@ class SchedulerManager(QObject):
 
         def run_workflow():
             try:
-                if not Path(workflow_path).exists():
-                    logger.error("工作流文件不存在: %s", workflow_path)
-                    self.task_failed.emit(task, f"工作流文件不存在: {workflow_path}")
-                    return
-
-                executor = WorkflowExecutor.load_workflow(
-                    workflow_path, self.uv_manager
-                )
-                report = executor.execute(return_report=True, trigger_type="scheduled")
-                record = executor.build_execution_record(
-                    report,
-                    workflow_path=workflow_path,
+                result = self.dispatcher.dispatch(
+                    workflow_path,
                     trigger_type="scheduled",
+                    uv_manager=self.uv_manager,
+                    workflow_name=task.get("workflow_name"),
                 )
-
-                self.config_manager.add_execution_record(record)
+                report = result.report
+                record = result.record
                 if report.get("success"):
                     self.task_finished.emit(record)
                 else:
@@ -114,20 +106,6 @@ class SchedulerManager(QObject):
 
                 traceback.print_exc()
 
-                record = {
-                    "id": str(uuid.uuid4())[:8],
-                    "workflow_name": task.get("workflow_name"),
-                    "workflow_path": workflow_path,
-                    "status": "failed",
-                    "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "duration_ms": 0,
-                    "output": None,
-                    "error": str(e),
-                    "trigger_type": "scheduled",
-                }
-
-                self.config_manager.add_execution_record(record)
                 self.task_failed.emit(task, str(e))
 
             finally:
