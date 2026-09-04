@@ -1,0 +1,20 @@
+{
+  "node_type": "runtime_call",
+  "name": "Runtime Call",
+  "description": "Call a persistent Mozikit runtime over localhost HTTP",
+  "category": "Runtime",
+  "version": "1.0.0",
+  "dependencies": [],
+  "config_schema": {
+    "runtime_id": {"type": "string", "label": "Runtime ID"},
+    "action": {"type": "string", "label": "Action"},
+    "params": {"type": "object", "label": "Parameters"},
+    "runtime_url": {"type": "string", "label": "Runtime Service URL"}
+  },
+  "input_schema": {
+    "runtime_id": {"type": "string"},
+    "action": {"type": "string"},
+    "params": {"type": "object"}
+  },
+  "output_schema": {}
+}

@@ -1,0 +1,9 @@
+{
+  "runtime_type": "echo",
+  "registrations": {
+    "runtime": {
+      "module": "runtime.py",
+      "callable": "EchoRuntime"
+    }
+  }
+}
