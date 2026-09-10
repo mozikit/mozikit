@@ -71,8 +71,12 @@ class ConfigManager:
     # 新的凭证存储使用 credential_store 模块（操作系统密钥链 + PBKDF2 加密）
     _MACHINE_KEY = None
 
-    def __init__(self, config_file="config.json"):
-        self.config_file = Path(config_file)
+    def __init__(self, config_file=None):
+        if config_file is None:
+            from src.core.runtime_paths import get_config_path
+
+            config_file = get_config_path()
+        self.config_file = Path(config_file).expanduser().resolve()
         self.config = self._load_config()
 
     def _load_config(self) -> dict:
@@ -441,6 +445,16 @@ class ConfigManager:
         merged.update(settings or {})
         self.config["node_repo_settings"] = merged
         self.save_config()
+
+    def get_official_repo_url(self) -> str:
+        """获取官方节点仓库地址（镜像源配置，默认官方仓库）"""
+        return self.get_node_repo_settings().get("official_repo_url", "").strip()
+
+    def set_official_repo_url(self, url: str):
+        """设置官方节点仓库地址（镜像源配置）"""
+        settings = self.get_node_repo_settings()
+        settings["official_repo_url"] = (url or "").strip()
+        self.set_node_repo_settings(settings)
 
     # ========== 节点版本策略管理 ==========
 

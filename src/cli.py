@@ -1177,7 +1177,7 @@ def repo_list():
     """列出远程仓库中的可用节点"""
     mgr = _get_repo_mgr()
     with Status("[bold yellow]获取远程清单...[/]", console=console) as status:
-        owner_repo = mgr._parse_github_url(mgr.OFFICIAL_REPO_URL)
+        owner_repo = mgr._parse_github_url(mgr._resolve_effective_repo_url())
         if not owner_repo:
             console.print("[red]错误:[/] 无法解析仓库 URL")
             raise typer.Exit(code=1)

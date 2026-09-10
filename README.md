@@ -298,6 +298,24 @@ curl -X POST http://localhost:8080/workflows/run \
 
 ---
 
+## 🔄 官方节点镜像源配置
+
+官方节点仓库地址支持通过**环境变量**或**配置文件**覆盖为镜像源（如与官方仓库保持同步的 GitHub fork），国内用户可切换镜像下载。
+
+优先级：**环境变量 > 配置文件 > 默认官方仓库**。
+
+```bash
+# 方式一：环境变量（临时生效，适合 CI/命令行）
+export MOZIKIT_OFFICIAL_NODES_URL="https://github.com/mozikit/mozikit-official-nodes"
+
+# 方式二：配置文件（持久生效）
+mozikit config set node_repo_settings.official_repo_url "https://github.com/mozikit/mozikit-official-nodes"
+```
+
+> 内置快照同步（`tools/sync_official_nodes.py`）、更新检查与安装均使用解析后的源地址，行为一致。镜像地址需为 GitHub API 兼容的仓库。
+
+---
+
 ## 📝 使用示例
 
 ### 用 Python API 构建工作流

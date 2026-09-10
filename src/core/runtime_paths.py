@@ -17,3 +17,11 @@ def get_app_data_dir() -> Path:
 
 def get_runtime_dir() -> Path:
     return get_app_data_dir() / "runtime"
+
+
+def get_config_path() -> Path:
+    """Return the single absolute application configuration path."""
+    override = os.environ.get("MOZIKIT_CONFIG_PATH")
+    if override:
+        return Path(override).expanduser().resolve()
+    return get_app_data_dir() / "config.json"

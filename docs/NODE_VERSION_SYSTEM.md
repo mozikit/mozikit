@@ -218,6 +218,44 @@ config.set_node_version_policy("current")  # 使用 current 指向的版本
 - `current` - 使用 current 链接指向的版本
 - `prompt` - 提示用户选择（预留，需 UI 支持）
 
+## 分发策略
+
+官方节点的分发遵循以下四条规则：
+
+1. **用户目录优先** - 注册表永远优先加载 `user_data/official_nodes/`（用户可写目录）中的节点；仅当用户目录为空或不存在时才回退到内置快照。
+2. **内置仅 bootstrap** - 内置快照 `official_nodes/`（随主程序打包）仅作为离线/首次启动的兜底。运行时所有写操作（安装、更新）只发生在用户目录；内置快照目录只由同步脚本在构建期写入，不提供独立更新入口。
+3. **官方仓库唯一更新通道** - 官方节点（含内置快照中的节点）的更新来源唯一：官方仓库或其配置的镜像。不存在"内置节点更新"之类的第二条更新路径。
+4. **检查不自动安装** - GUI 启动或手动检查时发现新版本仅提示用户，安装需用户确认，且写入用户目录。
+
+### 内置快照
+
+快照由 `tools/sync_official_nodes.py` 生成（`build.py` 打包前自动调用）：从官方仓库（或镜像）拉取远程 manifest 与各节点当前版本文件，写入项目根 `official_nodes/`。生成的 `manifest.json` 记录 `repo_name`、`repo_url`、`repo_version`、`snapshot_commit`、`app_min_version`、`nodes`，可据此重建同一快照。
+
+```bash
+# 手动同步（默认源：环境变量 > 配置文件 > 官方仓库）
+python tools/sync_official_nodes.py
+
+# 指定镜像源
+python tools/sync_official_nodes.py --source https://github.com/mozikit/mozikit-official-nodes
+```
+
+### 快照版本兼容
+
+快照 manifest 可声明 `app_min_version`（清单级最低主程序版本）。注册表加载官方节点时比较当前主程序版本与声明：不满足则跳过该来源并给出明确提示，而非静默加载。旧清单（无此字段）按兼容处理。
+
+### 镜像源配置
+
+官方节点仓库地址解析优先级：`MOZIKIT_OFFICIAL_NODES_URL` 环境变量 > `ConfigManager` 配置 > 硬编码默认值。镜像只需是与官方仓库保持同步的 fork（manifest 内 `repo_url` 指向镜像自身），更新检查与安装天然以镜像为准。
+
+```python
+from src.core.config_manager import ConfigManager
+
+config = ConfigManager()
+config.set_official_repo_url("https://github.com/mozikit/mozikit-official-nodes")
+```
+
+> 注：镜像地址需要是 GitHub API 兼容的仓库（GitHub fork / GitHub Enterprise）；当前实现不面向 Gitee 等非 GitHub API 平台。
+
 ## 向后兼容
 
 ### 旧节点自动迁移

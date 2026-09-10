@@ -240,4 +240,6 @@ runs/
 scripts/node_n*.py
 
 # External tools (not part of the project)
-tools/
+tools/*
+# 官方节点快照同步脚本（构建必需，随仓库维护）
+!tools/sync_official_nodes.py

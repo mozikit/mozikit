@@ -146,6 +146,7 @@ class NodeRegistry:
 
         # 获取所有节点
         manifest_path = official_dir / "manifest.json"
+        manifest = {}
         node_types = []
         if manifest_path.exists():
             try:
@@ -158,6 +159,23 @@ class NodeRegistry:
                         node_types = list(nodes_data.keys())
             except Exception:
                 pass
+
+        # 校验清单级 app_min_version（对用户目录与内置快照两个来源均生效：
+        # active_dir 已解析出当前生效的来源，此处校验其 manifest）
+        from .node_repo_manager import is_app_version_compatible
+        from src.core import __version__ as app_version
+
+        min_app_version = manifest.get("app_min_version", "")
+        if min_app_version and not is_app_version_compatible(
+            app_version, min_app_version
+        ):
+            logger.warning(
+                "跳过官方节点来源 %s: 清单要求主程序 >= %s，当前版本 %s",
+                official_dir,
+                min_app_version,
+                app_version,
+            )
+            return
 
         if not node_types:
             for d in official_dir.iterdir():

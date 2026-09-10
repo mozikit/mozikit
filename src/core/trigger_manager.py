@@ -6,7 +6,8 @@ import hashlib
 import json
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+import queue
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -37,6 +38,61 @@ class TriggerDefinition:
 class _ActualTrigger:
     definition: TriggerDefinition
     instance: TriggerBase
+    run_controller: "_RunController"
+
+
+class _RunController:
+    """Bounded, daemon-thread-backed queue for one trigger's workflow runs."""
+
+    def __init__(self, handler, max_concurrency: int, max_pending: int):
+        self._handler = handler
+        self._queue = queue.Queue(maxsize=max_pending)
+        self._stop_event = threading.Event()
+        self._threads = []
+        for index in range(max_concurrency):
+            thread = threading.Thread(
+                target=self._worker,
+                name=f"trigger-run-{index}",
+                daemon=True,
+            )
+            thread.start()
+            self._threads.append(thread)
+
+    def submit(self, payload: dict) -> bool:
+        if self._stop_event.is_set():
+            return False
+        try:
+            self._queue.put_nowait(payload)
+            return True
+        except queue.Full:
+            return False
+
+    def stop(self, timeout: float) -> bool:
+        self._stop_event.set()
+        while True:
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except queue.Empty:
+                break
+        deadline = time.monotonic() + max(timeout, 0)
+        for thread in self._threads:
+            remaining = max(0, deadline - time.monotonic())
+            thread.join(remaining)
+        return not any(thread.is_alive() for thread in self._threads)
+
+    def _worker(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                payload = self._queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            try:
+                self._handler(payload)
+            except Exception:
+                logger.exception("Trigger workflow run failed")
+            finally:
+                self._queue.task_done()
 
 
 class TriggerManager:
@@ -48,12 +104,18 @@ class TriggerManager:
         dispatcher: Optional[WorkflowRunDispatcher] = None,
         state_path: Optional[str | Path] = None,
         reconcile_interval: float = 1.0,
+        shutdown_timeout: float = 5.0,
+        max_concurrency: int = 4,
+        max_pending: int = 100,
     ) -> None:
         self.workflows_dir = Path(workflows_dir).expanduser().resolve()
         self.registry = registry or trigger_registry
         self.dispatcher = dispatcher or WorkflowRunDispatcher()
         self.state_path = Path(state_path) if state_path else None
         self.reconcile_interval = max(reconcile_interval, 0.05)
+        self.shutdown_timeout = max(shutdown_timeout, 0)
+        self.max_concurrency = max(int(max_concurrency), 1)
+        self.max_pending = max(int(max_pending), 1)
         self._actual: dict[str, _ActualTrigger] = {}
         self._errors: dict[str, str] = {}
         self._seen = self._load_seen()
@@ -61,15 +123,10 @@ class TriggerManager:
         self._reconcile_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = None
-        self._runs = ThreadPoolExecutor(max_workers=4, thread_name_prefix="trigger-run")
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        if self._runs is None:
-            self._runs = ThreadPoolExecutor(
-                max_workers=4, thread_name_prefix="trigger-run"
-            )
         self._stop_event.clear()
         self.reconcile()
         self._thread = threading.Thread(
@@ -85,9 +142,6 @@ class TriggerManager:
         with self._reconcile_lock:
             for key in list(self._actual):
                 self._stop_trigger(key)
-        runs, self._runs = self._runs, None
-        if runs is not None:
-            runs.shutdown(wait=True, cancel_futures=True)
 
     def reconcile(self) -> dict:
         with self._reconcile_lock:
@@ -194,11 +248,20 @@ class TriggerManager:
             return
         try:
             instance = trigger_class(definition.trigger_id, definition.config)
+            run_controller = _RunController(
+                lambda payload: self._run_workflow(definition, payload),
+                self.max_concurrency,
+                self.max_pending,
+            )
             instance.start(lambda payload: self._emit(definition, payload))
             with self._lock:
-                self._actual[definition.key] = _ActualTrigger(definition, instance)
+                self._actual[definition.key] = _ActualTrigger(
+                    definition, instance, run_controller
+                )
                 self._errors.pop(definition.key, None)
         except Exception as exc:
+            if "run_controller" in locals():
+                run_controller.stop(self.shutdown_timeout)
             self._errors[definition.key] = str(exc)
             logger.exception("Could not start trigger %s", definition.key)
 
@@ -211,6 +274,8 @@ class TriggerManager:
             except Exception as exc:
                 self._errors[key] = str(exc)
                 logger.exception("Could not stop trigger %s", key)
+            if not actual.run_controller.stop(self.shutdown_timeout):
+                self._errors[key] = "trigger workflow runs did not stop before timeout"
 
     def _emit(self, definition: TriggerDefinition, payload: dict) -> None:
         if not isinstance(payload, dict):
@@ -225,9 +290,12 @@ class TriggerManager:
                 self._seen.append(dedupe_key)
                 self._seen = self._seen[-1000:]
                 self._save_seen()
-        runs = self._runs
-        if runs is not None:
-            runs.submit(self._run_workflow, definition, dict(payload))
+        with self._lock:
+            actual = self._actual.get(definition.key)
+        if actual is None:
+            return
+        if not actual.run_controller.submit(dict(payload)):
+            logger.warning("Trigger run queue full; dropping event: %s", definition.key)
 
     def _run_workflow(self, definition: TriggerDefinition, payload: dict) -> None:
         try:

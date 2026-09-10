@@ -12,6 +12,7 @@
 
 import base64
 import json
+import os
 import re
 import shutil
 import sys
@@ -50,6 +51,34 @@ def _gh_get(url: str, token: str = None, timeout: int = 10) -> Tuple[int, dict]:
         return e.code, body
     except Exception as e:
         return 0, {"error": str(e)}
+
+
+def _parse_version_parts(version: str) -> List[int]:
+    """将版本号解析为数值列表（"1.2.3" -> [1, 2, 3]）"""
+    parts = []
+    for p in str(version).split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return parts
+
+
+def is_app_version_compatible(app_version: str, min_app_version: str) -> bool:
+    """判断当前主程序版本是否满足清单声明的最低版本要求
+
+    复用 _sort_versions 的数值解析思路；版本号缺失或解析失败时按不兼容处理。
+    """
+    if not min_app_version:
+        return True
+    if not app_version:
+        return False
+    try:
+        return _parse_version_parts(app_version) >= _parse_version_parts(
+            min_app_version
+        )
+    except Exception:
+        return False
 
 
 @dataclass
@@ -98,16 +127,7 @@ class RemoteNodeInfo:
 
     @staticmethod
     def _sort_versions(versions: List[str]) -> List[str]:
-        def parse(v):
-            parts = []
-            for p in v.split("."):
-                try:
-                    parts.append(int(p))
-                except ValueError:
-                    parts.append(0)
-            return parts
-
-        return sorted(versions, key=parse)
+        return sorted(versions, key=_parse_version_parts)
 
 
 @dataclass
@@ -118,6 +138,7 @@ class RemoteManifest:
     repo_url: str = ""
     repo_version: str = "0.0.0"
     snapshot_commit: str = ""
+    app_min_version: str = ""  # 快照级最低主程序版本要求（旧清单无此字段，视为兼容）
     nodes: Dict[str, RemoteNodeInfo] = field(default_factory=dict)
     legacy_format: bool = False  # 标记是否为旧格式
 
@@ -144,6 +165,7 @@ class RemoteManifest:
                 "repo_version", data.get("snapshot_version", "0.0.0")
             ),
             snapshot_commit=data.get("snapshot_commit", ""),
+            app_min_version=data.get("app_min_version", ""),
             nodes=nodes,
             legacy_format=legacy_format,
         )
@@ -155,6 +177,7 @@ class RemoteManifest:
                 "repo_url": self.repo_url,
                 "snapshot_version": self.repo_version,
                 "snapshot_commit": self.snapshot_commit,
+                "app_min_version": self.app_min_version,
                 "nodes": list(self.nodes.keys()),
             }
         return {
@@ -162,6 +185,7 @@ class RemoteManifest:
             "repo_url": self.repo_url,
             "repo_version": self.repo_version,
             "snapshot_commit": self.snapshot_commit,
+            "app_min_version": self.app_min_version,
             "nodes": {
                 k: {
                     "versions": [
@@ -235,7 +259,9 @@ class NodeRepoManager:
 
     @property
     def active_dir(self) -> Path:
-        if self._user_official_dir.exists() and any(self._user_official_dir.iterdir()):
+        # A user manifest alone (for example after an interrupted install) is
+        # not an installed node set and must not hide the bundled snapshot.
+        if self._version_mgr.scan_all_nodes():
             return self._user_official_dir
         return self._bundled_dir
 
@@ -245,6 +271,43 @@ class NodeRepoManager:
 
     def set_github_token(self, token: str):
         self._github_token = token if token else None
+
+    def resolve_official_repo_url(self) -> str:
+        """解析官方节点仓库地址（镜像源支持）
+
+        优先级: MOZIKIT_OFFICIAL_NODES_URL 环境变量 > ConfigManager 配置 > 默认值。
+        镜像只需是与官方仓库保持同步的 fork（manifest 内 repo_url 指向镜像自身）。
+        """
+        repo_url, _ = self._resolve_configured_official_repo_url()
+        return repo_url
+
+    def _resolve_configured_official_repo_url(self) -> Tuple[str, bool]:
+        """Return the configured source and whether it was explicitly set."""
+        env_url = os.environ.get("MOZIKIT_OFFICIAL_NODES_URL", "").strip()
+        if env_url:
+            return env_url, True
+        try:
+            from .config_manager import ConfigManager
+
+            config_url = ConfigManager().get_official_repo_url().strip()
+            if config_url:
+                return config_url, True
+        except Exception as e:
+            logger.warning("读取官方源配置失败，使用默认地址: %s", e)
+        return self.OFFICIAL_REPO_URL, False
+
+    def _resolve_effective_repo_url(self) -> str:
+        """解析实际使用的官方源地址
+
+        用户侧配置（环境变量 > 配置文件 > 默认）优先；本地 manifest 的 repo_url
+        是仓库侧的重定向能力（快照来自镜像时指向镜像自身），仅在用户未显式配置
+        源（解析结果仍是默认地址）时作为回退生效，与用户配置职责区分。
+        """
+        repo_url, explicitly_configured = self._resolve_configured_official_repo_url()
+        local_manifest = self.load_local_manifest()
+        if local_manifest and not explicitly_configured:
+            repo_url = local_manifest.get("repo_url", repo_url)
+        return repo_url
 
     # ── 清单加载 ──
 
@@ -279,9 +342,7 @@ class NodeRepoManager:
     def check_for_updates(self) -> UpdateCheckResult:
         """检查可用更新 - 返回所有节点的新版本信息"""
         local_manifest = self.load_local_manifest()
-        repo_url = self.OFFICIAL_REPO_URL
-        if local_manifest:
-            repo_url = local_manifest.get("repo_url", repo_url)
+        repo_url = self._resolve_effective_repo_url()
 
         owner_repo = self._parse_github_url(repo_url)
         if not owner_repo:
@@ -292,7 +353,9 @@ class NodeRepoManager:
             return UpdateCheckResult(error="无法获取远程 manifest.json")
 
         result = UpdateCheckResult(
-            repo_version=local_manifest.get("snapshot_version", "0.0.0")
+            repo_version=local_manifest.get(
+                "repo_version", local_manifest.get("snapshot_version", "0.0.0")
+            )
             if local_manifest
             else "0.0.0",
             remote_repo_version=remote_manifest.repo_version,
@@ -342,10 +405,7 @@ class NodeRepoManager:
             (success, message)
         """
         # 获取远程清单
-        local_manifest = self.load_local_manifest()
-        repo_url = self.OFFICIAL_REPO_URL
-        if local_manifest:
-            repo_url = local_manifest.get("repo_url", repo_url)
+        repo_url = self._resolve_effective_repo_url()
 
         owner_repo = self._parse_github_url(repo_url)
         if not owner_repo:
@@ -510,11 +570,7 @@ class NodeRepoManager:
 
     def list_remote_versions(self, node_type: str) -> List[str]:
         """列出远程可用的所有版本"""
-        local_manifest = self.load_local_manifest()
-        repo_url = self.OFFICIAL_REPO_URL
-        if local_manifest:
-            repo_url = local_manifest.get("repo_url", repo_url)
-
+        repo_url = self._resolve_effective_repo_url()
         owner_repo = self._parse_github_url(repo_url)
         if not owner_repo:
             return []
@@ -549,16 +605,7 @@ class NodeRepoManager:
 
     @staticmethod
     def _version_gt(v1: str, v2: str) -> bool:
-        def parse(v):
-            parts = []
-            for p in v.split("."):
-                try:
-                    parts.append(int(p))
-                except ValueError:
-                    parts.append(0)
-            return parts
-
-        return parse(v1) > parse(v2)
+        return _parse_version_parts(v1) > _parse_version_parts(v2)
 
     def list_private_repos(self) -> List[dict]:
         if not self._github_token:

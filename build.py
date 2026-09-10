@@ -66,6 +66,22 @@ def check_requirements():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
         print("[OK] Pillow installed successfully")
 
+def sync_official_nodes_snapshot():
+    """打包前同步官方节点快照（目录缺失时不再静默跳过）"""
+    print("Syncing official nodes snapshot...")
+    script = Path("tools") / "sync_official_nodes.py"
+    if not script.exists():
+        print(f"[ERROR] 同步脚本不存在: {script}")
+        return False
+    try:
+        subprocess.check_call([sys.executable, str(script)])
+        print("[OK] Official nodes snapshot synced")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] 官方节点快照同步失败: {e}")
+        return False
+
+
 def create_spec_file():
     """Create PyInstaller spec file"""
     print("Creating PyInstaller spec file...")
@@ -126,10 +142,15 @@ def create_spec_file():
     if version_file.exists():
         added_files.append((str(version_file), "src/core"))
 
-    # 官方节点快照
+    # 官方节点快照（打包前已由 sync_official_nodes_snapshot 生成；缺失时明确告警）
     official_nodes_dir = ROOT_DIR / "official_nodes"
     if official_nodes_dir.exists():
         added_files.append((str(official_nodes_dir), "official_nodes"))
+    else:
+        print(
+            "[WARNING] official_nodes 快照目录不存在，打包将不含内置节点"
+            "（运行时仅告警、不崩溃）"
+        )
     
     # 手动构建spec内容，避免f-string问题
     spec_lines = [
@@ -396,26 +417,33 @@ def main():
         # 2. Generate version file
         generate_version_file()
 
-        # 3. Ask to clean
+        # 3. 同步官方节点快照（构建必需；失败时明确告警，不静默跳过）
+        if not sync_official_nodes_snapshot():
+            print(
+                "[WARNING] 官方节点快照同步失败，请检查网络或镜像源配置；"
+                "构建将继续，但打包产物可能不含内置节点"
+            )
+
+        # 4. Ask to clean
         clean = input("\nClean previous build files? (y/N): ").lower().startswith('y')
         if clean:
             clean_build()
 
-        # 4. Create spec file
+        # 5. Create spec file
         create_spec_file()
         
-        # 4. Build executable
+        # 6. Build executable
         if not build_executable():
             sys.exit(1)
         
-        # 5. Verify build
+        # 7. Verify build
         if not verify_build():
             sys.exit(1)
         
-        # 6. Create release package (GitHub Actions style)
+        # 8. Create release package (GitHub Actions style)
         create_release_package()
 
-        # 7. Create portable version (Optional, kept for convenience)
+        # 9. Create portable version (Optional, kept for convenience)
         create_portable_package()
         
         print("\n" + "=" * 50)
