@@ -72,12 +72,35 @@ class ConfigManager:
     _MACHINE_KEY = None
 
     def __init__(self, config_file=None):
+        use_default_path = config_file is None
         if config_file is None:
             from src.core.runtime_paths import get_config_path
 
             config_file = get_config_path()
         self.config_file = Path(config_file).expanduser().resolve()
+        if use_default_path:
+            self._migrate_legacy_config()
         self.config = self._load_config()
+
+    def _migrate_legacy_config(self) -> None:
+        """将旧的工作目录配置复制到统一的 App Data 配置路径。
+
+        仅默认 ConfigManager 实例执行迁移。目标文件一旦存在便跳过，避免
+        旧配置覆盖用户已经使用的新配置；旧文件保留，以便回滚和人工清理。
+        """
+        legacy_path = Path.cwd() / "config.json"
+        if self.config_file.exists() or not legacy_path.is_file():
+            return
+        if legacy_path.resolve() == self.config_file:
+            return
+
+        try:
+            from src.core._file_utils import atomic_write
+
+            atomic_write(self.config_file, legacy_path.read_bytes())
+            logger.info("已将旧配置迁移至统一路径: %s -> %s", legacy_path, self.config_file)
+        except Exception as e:
+            logger.warning("迁移旧配置失败（将使用空配置）: %s", e)
 
     def _load_config(self) -> dict:
         """加载配置文件"""
