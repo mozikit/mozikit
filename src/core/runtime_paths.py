@@ -25,3 +25,13 @@ def get_config_path() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return get_app_data_dir() / "config.json"
+
+
+def get_mcp_dir() -> Path:
+    """Return the application-owned directory for MCP configuration."""
+    return get_app_data_dir() / "mcp"
+
+
+def get_mcp_servers_path() -> Path:
+    """Return the persistent MCP Server Registry file path."""
+    return get_mcp_dir() / "servers.json"
