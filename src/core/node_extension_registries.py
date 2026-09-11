@@ -5,8 +5,9 @@
   1. SchemaBuilder  — 动态构建 config_schema
   2. BootstrapHook  — 生成完整的 execute() 函数体
   3. Editor         — 节点属性编辑器对话框
+  4. NativeNodeExecutor — 由 Core 注册、在主进程同步执行的受信任执行器
 """
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Protocol
 
 # ── 类型别名 ──────────────────────────────────────────────
 
@@ -15,6 +16,15 @@ SchemaBuilder = Callable[[list, Optional[dict]], dict]
 
 BootstrapHook = Callable[[dict], str]
 """(config: dict) → 完整的 execute(self, input_data) 函数体字符串"""
+
+
+class NativeNodeExecutor(Protocol):
+    """同步 Native 节点执行器接口。"""
+
+    def execute(self, *, node, input_data: dict, context: dict,
+                timeout: float | None = None, progress_callback=None,
+                log_callback=None) -> dict:
+        raise NotImplementedError
 
 
 # ── 注册表基类 ────────────────────────────────────────────
@@ -44,6 +54,15 @@ class _Registry:
 schema_builders: _Registry = _Registry()
 bootstrap_hooks: _Registry = _Registry()
 editors: _Registry = _Registry()
+# Keyed by a trusted executor id, never by an importable module path from JSON.
+native_executors: _Registry = _Registry()
+
+
+def execute_native(executor_id: str, **kwargs) -> dict:
+    executor = native_executors.get(executor_id)
+    if executor is None:
+        raise LookupError(f"Native executor is not registered: {executor_id}")
+    return executor.execute(**kwargs)
 
 
 # ── 从 node.json registrations 字段动态加载 ──────────────

@@ -80,6 +80,33 @@ class NodeRegistry:
         self._migrate_legacy_nodes()
         self._load_official_nodes()
         self._load_external_nodes()
+        self._register_core_nodes()
+
+    def _register_core_nodes(self):
+        """Register Core-owned nodes when the optional distribution is absent.
+
+        The metadata may still be supplied/updated by official node
+        distribution; this fallback keeps the built-in executor usable in a
+        source checkout and during an interrupted snapshot update.
+        """
+        from .mcp_tool_executor import register_mcp_tool_executor
+        register_mcp_tool_executor()
+        if "mcp_tool" in self._nodes:
+            return
+        self._nodes["mcp_tool"] = NodeDefinition(
+            node_type="mcp_tool", name="MCP Tool",
+            description="调用已配置 MCP Server 中的工具", source=NodeSource.OFFICIAL,
+            category="集成", source_code="", dependencies=[], version="1.0.0",
+            config_schema={
+                "server_id": {"type": "string", "label": "MCP Server", "required": True},
+                "tool_name": {"type": "string", "label": "Tool", "required": True},
+                "arguments": {"type": "json", "label": "Arguments", "default": {}},
+                "timeout": {"type": "int", "label": "Timeout", "default": 60},
+            },
+            output_schema={"result": {"type": "any"}, "content": {"type": "array"},
+                           "is_error": {"type": "boolean"}, "meta": {"type": "object"}},
+            registrations={"native_executor": {"id": "mcp_tool"}},
+        )
 
     def _ensure_dirs(self):
         """确保所有节点类型的目录在启动时存在"""
@@ -206,7 +233,11 @@ class NodeRegistry:
                 registrations = config.get("registrations", {})
 
                 # 解析注册信息并注册扩展点
-                version_dir = vm.get_version_dir(node_type, current_version)
+                version_dir = (
+                    vm.get_version_dir(node_type, current_version)
+                    if current_version
+                    else official_dir / node_type
+                )
                 self._load_registrations_for_node(node_type, registrations, version_dir)
 
                 # 使用 SchemaBuilder 替换静态 config_schema（若注册）

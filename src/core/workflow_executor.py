@@ -89,6 +89,8 @@ class WorkflowExecutor:
         self.node_outputs: Dict[str, Dict[str, Any]] = {}
         self._stop_event = threading.Event()
         self._worker_process = None
+        from .mcp_tool_executor import register_mcp_tool_executor
+        register_mcp_tool_executor()
 
     def add_node(self, node: NodeBase):
         """添加节点"""
@@ -289,6 +291,15 @@ class WorkflowExecutor:
 
         return dependencies
 
+    def _native_executor_id(self, node: NodeBase) -> str | None:
+        from .node_extension_registries import native_executors
+        from .node_registry import get_registry
+        node_type = node.node_type.value if hasattr(node.node_type, "value") else str(node.node_type)
+        definition = get_registry().get_node(node_type)
+        registration = (definition.registrations or {}).get("native_executor", {}) if definition else {}
+        executor_id = registration.get("id") if isinstance(registration, dict) else None
+        return executor_id if executor_id and native_executors.has(executor_id) else None
+
     def _resolve_dependencies(self, dependencies: List[str]) -> List[str]:
         """解析并去重依赖，检测基本冲突"""
         if not dependencies:
@@ -409,6 +420,8 @@ class WorkflowExecutor:
 
         script_paths = {}
         for node_id, node in self.nodes.items():
+            if self._native_executor_id(node):
+                continue
             script_path = self._get_versioned_script_path(node)
             script_paths[node_id] = script_path
 
@@ -516,6 +529,43 @@ class WorkflowExecutor:
 
         node = self.nodes[node_id]
 
+        node_type_str = (
+            node.node_type.value
+            if hasattr(node.node_type, "value")
+            else str(node.node_type)
+        )
+        native_id = self._native_executor_id(node)
+        started_at = datetime.now()
+
+        if native_id:
+            try:
+                from .node_extension_registries import execute_native
+                raw_output = execute_native(
+                    native_id, node=node, input_data=input_data or {},
+                    context=self.context,
+                    timeout=self.config_manager.get_node_timeout_seconds(),
+                    progress_callback=(lambda p, m="": on_node_progress(node_id, p, m)
+                                       if on_node_progress else None),
+                    log_callback=(lambda line: on_node_log(node_id, line)
+                                  if on_node_log else None),
+                )
+                if not isinstance(raw_output, dict):
+                    raise TypeError("Native node output must be a dict")
+                success, error = True, ""
+            except Exception as exc:
+                raw_output, success = {}, False
+                error = (f"[{exc.code.value}] {exc.message}" if hasattr(exc, "code")
+                         else str(exc))
+            return raw_output, {
+                "node_id": node_id, "node_type": node_type_str, "success": success,
+                "duration_ms": int((datetime.now() - started_at).total_seconds() * 1000),
+                "started_at": started_at.isoformat(timespec="seconds"),
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "script_path": "", "input": self._sanitize_for_report(input_data or {}),
+                "output": self._sanitize_for_report(raw_output), "stdout": "",
+                "stderr": "", "error": error, "traceback": "",
+            }
+
         # 解析 credentials，通过 stdin 传递（不写入脚本文件）
         input_data = self._resolve_creds_in_input(node_id, input_data or {})
 
@@ -539,12 +589,6 @@ class WorkflowExecutor:
         scripts_dir.mkdir(exist_ok=True)
 
         script_path = node.generate_script(str(scripts_dir))
-        node_type_str = (
-            node.node_type.value
-            if hasattr(node.node_type, "value")
-            else str(node.node_type)
-        )
-
         started_at = datetime.now()
         logger.info("执行节点: %s (%s)", node_id, node_type_str)
 
@@ -784,7 +828,9 @@ class WorkflowExecutor:
             logger.info("已生成 %d 个节点脚本", len(script_paths))
 
             logger.info("正在启动工作流执行引擎...")
-            worker_process = self.uv_manager.start_worker(self.workflow_name)
+            worker_process = (
+                self.uv_manager.start_worker(self.workflow_name) if script_paths else None
+            )
             self._worker_process = worker_process
             if worker_process:
                 logger.info("工作流执行引擎启动成功")
