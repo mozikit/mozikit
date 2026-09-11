@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, TypeAlias
+
+
+JsonValue: TypeAlias = (str | int | float | bool | None |
+                        list["JsonValue"] | dict[str, "JsonValue"])
 
 
 @dataclass
@@ -17,7 +21,7 @@ class MCPToolDefinition:
 @dataclass
 class MCPToolResult:
     content: list[Any]
-    structured_content: dict[str, Any] | None
+    structured_content: JsonValue
     is_error: bool
     meta: dict[str, Any] | None
     raw: Any | None = None

@@ -115,3 +115,54 @@ async def test_connection_timeout_is_structured_and_test_client_is_temporary():
     result = await MCPClientManager(FakeRegistry(), client_factory=slow_factory).test_connection("demo", 0.001)
     assert not result.success
     assert result.error_code == ErrorCode.MCP_CONNECTION_TIMEOUT.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("config_change", ["missing", "disabled"])
+async def test_connection_registry_errors_are_structured(config_change):
+    registry = FakeRegistry()
+    server_id = "demo"
+    if config_change == "missing":
+        server_id = "unknown"
+    else:
+        registry.config["enabled"] = False
+
+    result = await MCPClientManager(registry, client_factory=fake_factory).test_connection(server_id)
+
+    assert not result.success
+    assert result.error_code in {
+        ErrorCode.MCP_SERVER_NOT_FOUND.value,
+        ErrorCode.MCP_SERVER_DISABLED.value,
+    }
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_an_inflight_call_before_closing_transport():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingClient(FakeClient):
+        async def call_tool(self, name, arguments):
+            entered.set()
+            await release.wait()
+            return await super().call_tool(name, arguments)
+
+    @asynccontextmanager
+    async def blocking_factory(resolved):
+        client = BlockingClient(resolved)
+        try:
+            yield client
+        finally:
+            await client.__aexit__()
+
+    manager = MCPClientManager(FakeRegistry(), client_factory=blocking_factory)
+    call = asyncio.create_task(manager.call_tool("demo", "echo", {"value": 1}))
+    await entered.wait()
+    closing = asyncio.create_task(manager.close("demo"))
+    await asyncio.sleep(0)
+    assert not closing.done()
+    assert not FakeClient.instances[-1].closed
+    release.set()
+    await call
+    await closing
+    assert FakeClient.instances[-1].closed

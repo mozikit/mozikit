@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -48,11 +47,13 @@ class MCPClientManager:
         self._client_factory = client_factory
 
     async def test_connection(self, server_id: str, timeout: float = 15.0) -> MCPConnectionTestResult:
-        resolved = self._resolve(server_id)
         started = time.perf_counter()
-        transport = resolved["transport"]
-        name = resolved.get("name")
+        transport = ""
+        name = None
         try:
+            resolved = self._resolve(server_id)
+            transport = resolved["transport"]
+            name = resolved.get("name")
             async with AsyncExitStack() as stack:
                 client = await asyncio.wait_for(self._enter_client(stack, resolved), timeout)
                 tools = await asyncio.wait_for(client.list_tools(), timeout)
@@ -111,7 +112,7 @@ class MCPClientManager:
         async with self._clients_lock:
             handle = self._clients.pop(server_id, None)
         if handle:
-            await handle.stack.aclose()
+            await self._close_handle(handle)
 
     async def close_all(self) -> None:
         async with self._clients_lock:
@@ -120,7 +121,7 @@ class MCPClientManager:
         first_error: BaseException | None = None
         for handle in handles:
             try:
-                await handle.stack.aclose()
+                await self._close_handle(handle)
             except BaseException as exc:
                 if first_error is None:
                     first_error = exc
@@ -141,7 +142,7 @@ class MCPClientManager:
                 if current:
                     self._clients.pop(server_id, None)
             if current:
-                await current.stack.aclose()
+                await self._close_handle(current)
             try:
                 stack = AsyncExitStack()
                 client = await asyncio.wait_for(self._enter_client(stack, resolved), self.connect_timeout)
@@ -170,10 +171,8 @@ class MCPClientManager:
         transport = resolved["transport"]
         if transport == "stdio":
             config = resolved["stdio"]
-            env = dict(os.environ) if config.get("inherit_env", True) else {}
-            env.update(config.get("env") or {})
             server = StdioServerParameters(command=config["command"], args=config.get("args") or [],
-                                           env=env, cwd=config.get("cwd"))
+                                           env=config.get("env") or {}, cwd=config.get("cwd"))
             return await stack.enter_async_context(Client(server))
         config = resolved["http"]
         try:
@@ -208,7 +207,16 @@ class MCPClientManager:
             if self._clients.get(server_id) is handle:
                 self._clients.pop(server_id, None)
                 handle.healthy = False
-                await handle.stack.aclose()
+            else:
+                return
+        await self._close_handle(handle)
+
+    @staticmethod
+    async def _close_handle(handle: MCPClientHandle) -> None:
+        """Close a detached handle after its in-flight operation has finished."""
+        handle.healthy = False
+        async with handle.lock:
+            await handle.stack.aclose()
 
     @staticmethod
     def _translate_connection_error(exc: Exception, server_id: str) -> MozikitError:
