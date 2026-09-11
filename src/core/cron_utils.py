@@ -5,7 +5,7 @@ Cron 表达式工具 — 无 PySide6 依赖
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 
 
 class CronUtils:
@@ -25,7 +25,7 @@ class CronUtils:
         normalized = CronUtils.normalize_cron(cron_expr)
         parts = normalized.split()
         if len(parts) != 5:
-            raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 表达式: {normalized}")
+            raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 表达式: {normalized}")
         return tuple(p for p in parts)
 
     @staticmethod
@@ -33,7 +33,7 @@ class CronUtils:
         """标准化 Cron 表达式空白"""
         normalized = " ".join(str(cron_expr or "").split())
         if not normalized:
-            raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, "Cron 表达式不能为空")
+            raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, "Cron 表达式不能为空")
         return normalized
 
     @staticmethod
@@ -47,13 +47,13 @@ class CronUtils:
         """解析并校验单个 Cron 字段"""
         expr = (expr or "").strip()
         if not expr:
-            raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, "Cron 字段不能为空")
+            raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, "Cron 字段不能为空")
 
         def parse_value(token: str) -> int:
             try:
                 number = int(token)
             except ValueError as exc:
-                raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 字段值: {token}") from exc
+                raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 字段值: {token}") from exc
             if allow_sunday_seven and number == 7:
                 number = 0
             return number
@@ -62,20 +62,20 @@ class CronUtils:
         for part in expr.split(","):
             part = part.strip()
             if not part:
-                raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 字段: {expr}")
+                raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 字段: {expr}")
 
             step = 1
             base = part
             if "/" in part:
                 base, step_text = part.split("/", 1)
                 if "/" in step_text or not step_text:
-                    raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 步长: {expr}")
+                    raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 步长: {expr}")
                 try:
                     step = int(step_text)
                 except ValueError as exc:
-                    raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 步长: {expr}") from exc
+                    raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 步长: {expr}") from exc
                 if step <= 0:
-                    raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 步长: {expr}")
+                    raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 步长: {expr}")
 
             if base == "*":
                 start = min_value
@@ -89,7 +89,7 @@ class CronUtils:
                 end = parse_value(base)
 
             if start < min_value or end > max_value or start > end:
-                raise LocalFlowError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 字段范围: {expr}")
+                raise MozikitError(ErrorCode.INVALID_CRON_EXPRESSION, f"无效的 Cron 字段范围: {expr}")
 
             parsed_parts.append((start, end, step))
 

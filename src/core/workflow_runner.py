@@ -13,7 +13,7 @@ import traceback
 import io
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 from src.core.log_manager import get_logger
 
 logger = get_logger("workflow_runner")
@@ -67,7 +67,7 @@ def load_module_from_file(file_path):
             return module
         return None
     except Exception as e:
-        raise LocalFlowError(ErrorCode.NODE_CREATION_FAILED, f"Failed to load module {file_path}: {e}")
+        raise MozikitError(ErrorCode.NODE_CREATION_FAILED, f"Failed to load module {file_path}: {e}")
 
 def handle_run_node(command):
     """Handle run_node command"""

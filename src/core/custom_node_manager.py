@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 from src.core.log_manager import get_logger
 
 from .node_version_manager import LocalManifest, NodeVersionManager, VersionInfo
@@ -218,13 +218,13 @@ class CustomNodeManager:
 
         is_valid, error_msg = self.validate_node(source_code)
         if not is_valid:
-            raise LocalFlowError(ErrorCode.NODE_VALIDATION_FAILED, error_msg)
+            raise MozikitError(ErrorCode.NODE_VALIDATION_FAILED, error_msg)
 
         safety_review = review_code_safety(source_code)
 
         if safety_review.high_risks:
             risk_detail = "; ".join(safety_review.high_risks)
-            raise LocalFlowError(
+            raise MozikitError(
                 ErrorCode.CODE_SAFETY_REJECTED,
                 f"代码安全审查未通过，检测到高风险操作: {risk_detail}。拒绝创建此节点。"
             )
@@ -485,7 +485,7 @@ class CustomNodeManager:
 
         is_valid, error_msg = self.validate_node(source_code)
         if not is_valid:
-            raise LocalFlowError(ErrorCode.NODE_VALIDATION_FAILED, error_msg)
+            raise MozikitError(ErrorCode.NODE_VALIDATION_FAILED, error_msg)
         return self.save_node(node_type, source_code, version=version)
 
     def rescan_playwright_node(
@@ -497,23 +497,23 @@ class CustomNodeManager:
 
         version_dir = self._version_mgr.get_version_dir(node_type, version)
         if not version_dir.exists():
-            raise LocalFlowError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_type}")
+            raise MozikitError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_type}")
 
         config_file = version_dir / "node.json"
         if not config_file.exists():
-            raise LocalFlowError(ErrorCode.NODE_NOT_FOUND, f"节点配置不存在: {node_type}")
+            raise MozikitError(ErrorCode.NODE_NOT_FOUND, f"节点配置不存在: {node_type}")
 
         with open(config_file, "r", encoding="utf-8") as f:
             config = json.load(f)
 
         metadata = config.get("metadata", {})
         if not is_playwright_node(metadata):
-            raise LocalFlowError(ErrorCode.NODE_VALIDATION_FAILED, "该节点不是 Playwright 脚本节点")
+            raise MozikitError(ErrorCode.NODE_VALIDATION_FAILED, "该节点不是 Playwright 脚本节点")
 
         script_file = metadata.get("script_file", "script.py")
         script_path = version_dir / script_file
         if not script_path.exists():
-            raise LocalFlowError(ErrorCode.FILE_NOT_FOUND, f"未找到脚本文件: {script_path}")
+            raise MozikitError(ErrorCode.FILE_NOT_FOUND, f"未找到脚本文件: {script_path}")
 
         script_source = script_path.read_text(encoding="utf-8")
         self.validate_python_source(script_source)
@@ -533,7 +533,7 @@ class CustomNodeManager:
             metadata=metadata,
             version=version,
         ):
-            raise LocalFlowError(ErrorCode.NODE_CREATION_FAILED, "保存 Playwright 节点失败")
+            raise MozikitError(ErrorCode.NODE_CREATION_FAILED, "保存 Playwright 节点失败")
 
         return {
             "param_names": param_names,
@@ -567,7 +567,7 @@ class CustomNodeManager:
         try:
             ast.parse(source_code)
         except SyntaxError as exc:
-            raise LocalFlowError(ErrorCode.SYNTAX_ERROR, f"语法错误: {exc.msg} (第{exc.lineno}行)") from exc
+            raise MozikitError(ErrorCode.SYNTAX_ERROR, f"语法错误: {exc.msg} (第{exc.lineno}行)") from exc
 
     def export_node(
         self,
@@ -671,7 +671,7 @@ class CustomNodeManager:
                                 break
 
                     if not node_type:
-                        raise LocalFlowError(ErrorCode.NODE_VALIDATION_FAILED, "无法确定节点类型")
+                        raise MozikitError(ErrorCode.NODE_VALIDATION_FAILED, "无法确定节点类型")
 
                     # 解压到目标目录
                     node_dir = self.custom_nodes_dir / node_type
@@ -714,7 +714,7 @@ class CustomNodeManager:
                         )
 
                     if not node_json_data:
-                        raise LocalFlowError(ErrorCode.NODE_VALIDATION_FAILED, "ZIP 中未找到 node.json")
+                        raise MozikitError(ErrorCode.NODE_VALIDATION_FAILED, "ZIP 中未找到 node.json")
 
                     node_type = node_json_data.get("node_type", "imported_node")
                     version = (

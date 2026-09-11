@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 from src.core.log_manager import get_logger
 
 from .code_safety import review_code_safety, safety_review_to_warning
@@ -569,7 +569,7 @@ class NodeRegistry:
         """重新扫描 Playwright 节点的脚本参数"""
         node = self._nodes.get(node_type)
         if not node:
-            raise LocalFlowError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_type}")
+            raise MozikitError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_type}")
 
         from src.core.custom_node_manager import CustomNodeManager
 

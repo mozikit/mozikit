@@ -150,7 +150,3 @@ class MozikitError(Exception):
             "error_code": self.code.value,
             "error": self.message,
         }
-
-
-# 向后兼容别名
-LocalFlowError = MozikitError

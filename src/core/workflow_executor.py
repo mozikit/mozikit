@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from src.core.exceptions import ErrorCode, LocalFlowError
+from src.core.exceptions import ErrorCode, MozikitError
 from src.core.expression_engine import render_expressions
 from src.core.log_manager import get_logger
 
@@ -350,7 +350,7 @@ class WorkflowExecutor:
                         queue.append(e.to_node)
 
         if len(result) != len(self.nodes):
-            raise LocalFlowError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "工作流中存在环路，无法执行")
+            raise MozikitError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "工作流中存在环路，无法执行")
 
         return result
 
@@ -525,7 +525,7 @@ class WorkflowExecutor:
             (原始输出数据, 节点执行报告)
         """
         if node_id not in self.nodes:
-            raise LocalFlowError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_id}")
+            raise MozikitError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_id}")
 
         node = self.nodes[node_id]
 
@@ -673,7 +673,7 @@ class WorkflowExecutor:
         )
 
         if not node_report["success"]:
-            raise LocalFlowError(ErrorCode.NODE_EXECUTION_FAILED, f"节点执行失败: {node_report['error']}")
+            raise MozikitError(ErrorCode.NODE_EXECUTION_FAILED, f"节点执行失败: {node_report['error']}")
 
         return raw_output
 
@@ -1008,7 +1008,7 @@ class WorkflowExecutor:
             return report
 
         if not report["success"]:
-            raise LocalFlowError(ErrorCode.WORKFLOW_EXECUTION_FAILED, report["error"] or "工作流执行失败")
+            raise MozikitError(ErrorCode.WORKFLOW_EXECUTION_FAILED, report["error"] or "工作流执行失败")
 
         return self.context
 

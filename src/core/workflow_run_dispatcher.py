@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional
 import uuid
 
 from .config_manager import ConfigManager
-from .exceptions import ErrorCode, LocalFlowError
+from .exceptions import ErrorCode, MozikitError
 from .runtime_client import RuntimeClient
 from .workflow_executor import WorkflowExecutor
 
@@ -52,11 +52,11 @@ class WorkflowRunDispatcher:
     def load_workflow(self, workflow_path: str, uv_manager=None) -> WorkflowExecutor:
         path = Path(workflow_path)
         if not path.exists():
-            raise LocalFlowError(
+            raise MozikitError(
                 ErrorCode.FILE_NOT_FOUND, f"工作流文件不存在: {workflow_path}"
             )
         if not path.is_file():
-            raise LocalFlowError(
+            raise MozikitError(
                 ErrorCode.FILE_NOT_FOUND, f"工作流路径不是文件: {workflow_path}"
             )
         return WorkflowExecutor.load_workflow(str(path), uv_manager)
