@@ -24,7 +24,6 @@ from src.core.config_manager import ConfigManager
 from src.core.log_manager import get_logger
 from src.core.theme_manager import ThemeManager
 from src.dialogs.settings_dialog import SettingsDialog
-from src.views.ai_chat_widget import AIChatWidget
 from src.views.execution_results_widget import ExecutionResultsWidget
 from src.views.node_browser import NodeBrowserWidget
 from src.views.node_properties import NodePropertiesWidget
@@ -137,12 +136,6 @@ class MainWindow(QMainWindow):
         )
         action_node_props.triggered.connect(self._toggle_node_properties)
 
-        # AI 助手按钮 - 切换右侧 AI 聊天面板
-        action_ai_chat = toolbar_right.addAction(
-            self._load_svg_icon("assets/icons/ai_chat.svg"), "AI助手"
-        )
-        action_ai_chat.triggered.connect(self._toggle_ai_chat)
-
         # 节点浏览器 Dock（左侧）
         self.node_browser_dock = QDockWidget(self)
         self.node_browser_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
@@ -169,15 +162,6 @@ class MainWindow(QMainWindow):
         self.execution_results_dock.setMinimumHeight(200)
         self.execution_results_dock.hide()
 
-        # AI 聊天 Dock（右侧，与节点属性面板标签页堆叠）
-        self.ai_chat_dock = QDockWidget(self)
-        self.ai_chat_dock.setAllowedAreas(Qt.RightDockWidgetArea)
-        self.ai_chat_dock.setTitleBarWidget(QWidget())
-        self.ai_chat = AIChatWidget(self)
-        self.ai_chat_dock.setWidget(self.ai_chat)
-        self.ai_chat_dock.setMinimumWidth(320)
-        self.ai_chat_dock.hide()
-
         # 信号连接：节点属性更新时通知当前工作流
         self.node_properties.properties_updated.connect(
             self._on_node_properties_updated
@@ -203,14 +187,13 @@ class MainWindow(QMainWindow):
         self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
         self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
 
-        # 右侧区域：使用自定义 QTabWidget 管理节点属性和 AI 助手
+        # 右侧区域：使用自定义 QTabWidget 管理节点属性
         self._right_tab_widget = QTabWidget()
         self._right_tab_widget.setDocumentMode(True)
         self._right_tab_widget.setTabsClosable(False)
         self._right_tab_widget.setMovable(False)
         self._right_tab_widget.setStyleSheet(ThemeManager.get_tab_widget_style())
         self._right_tab_widget.addTab(self.node_properties, "节点属性")
-        self._right_tab_widget.addTab(self.ai_chat, "AI 助手")
 
         self._right_dock = QDockWidget(self)
         self._right_dock.setAllowedAreas(Qt.RightDockWidgetArea)
@@ -265,23 +248,6 @@ class MainWindow(QMainWindow):
             dock_style = ThemeManager.get_dock_widget_style()
             self.execution_results_dock.setStyleSheet(dock_style)
             self.execution_results_dock.show()
-
-    def _toggle_ai_chat(self):
-        """切换 AI 聊天面板显示/隐藏"""
-        if self._right_dock.isVisible() and self._right_tab_widget.currentIndex() == 1:
-            self._right_dock.hide()
-        else:
-            self._right_tab_widget.setCurrentIndex(1)
-            self._right_dock.show()
-            self._update_ai_chat_context()
-
-    def _update_ai_chat_context(self):
-        """更新 AI 聊天的工作流上下文"""
-        current_widget = self.tabs.currentWidget()
-        if isinstance(current_widget, WorkflowTabWidget):
-            self.ai_chat.set_workflow_context(current_widget)
-        else:
-            self.ai_chat.set_workflow_context(None)
 
     def _on_node_properties_updated(self, node_id: str, config: dict):
         """节点属性已更新"""
@@ -346,8 +312,6 @@ class MainWindow(QMainWindow):
                     background: transparent;
                 }
             """)
-        # 更新 AI 聊天上下文
-        self._update_ai_chat_context()
 
     def add_workflow_tab(self):
         """Add a new workflow tab"""
@@ -872,8 +836,6 @@ class MainWindow(QMainWindow):
         """Open settings dialog"""
         dialog = SettingsDialog(self)
         dialog.exec()
-        # 设置关闭后刷新 AI 聊天服务配置
-        self.ai_chat.refresh_settings()
 
     def _setup_system_tray(self):
         """初始化系统托盘图标和菜单"""

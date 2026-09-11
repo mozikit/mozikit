@@ -27,7 +27,6 @@ class ConfigManager:
         "model": "",
         "timeout_seconds": 60,
         "temperature": 0.2,
-        "max_history_rounds": 20,
     }
 
     DEFAULT_GITHUB_SETTINGS = {

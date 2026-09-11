@@ -85,9 +85,7 @@ Mozikit/
 │   │   ├── node_registry.py      #   节点注册表
 │   │   ├── config_manager.py     #   配置管理器
 │   │   ├── credential_store.py   #   凭据加密存储
-│   │   ├── ai_chat_service.py    #   AI 聊天服务
 │   │   ├── ai_node_generator.py  #   AI 节点生成
-│   │   ├── ai_tool_executor.py   #   AI 工具调用执行器
 │   │   ├── code_safety.py        #   代码安全审查
 │   │   ├── scheduler_manager.py  #   定时任务管理器
 │   │   ├── headless_scheduler.py #   无头调度器（CLI）
@@ -115,7 +113,6 @@ Mozikit/
 │   │   ├── node_graphics.py      #   节点图形
 │   │   ├── node_properties.py    #   节点属性面板
 │   │   ├── node_browser.py       #   节点浏览器
-│   │   ├── ai_chat_widget.py     #   AI 聊天面板
 │   │   ├── overview_widget.py    #   总览面板（含调度管理）
 │   │   ├── execution_results_widget.py
 │   │   ├── toast_widget.py       #   Toast 提示

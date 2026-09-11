@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -622,36 +621,11 @@ class SettingsDialog(QDialog):
         temp_layout.addWidget(temp_label)
         temp_layout.addWidget(self.ai_temperature_input)
 
-        history_widget = QWidget()
-        history_layout = QHBoxLayout(history_widget)
-        history_layout.setContentsMargins(0, 0, 0, 0)
-        history_layout.setSpacing(8)
-        history_label = QLabel("历史轮数:")
-        self.ai_max_history_input = QDoubleSpinBox()
-        self.ai_max_history_input.setRange(1, 200)
-        self.ai_max_history_input.setSingleStep(1)
-        self.ai_max_history_input.setDecimals(0)
-        self.ai_max_history_input.setValue(20)
-        self.ai_max_history_input.setFixedWidth(80)
-        history_layout.addWidget(history_label)
-        history_layout.addWidget(self.ai_max_history_input)
-
         params_layout.addWidget(timeout_widget)
         params_layout.addWidget(temp_widget)
-        params_layout.addWidget(history_widget)
         params_layout.addStretch()
 
         ai_form_layout.addRow("参数:", params_widget)
-
-        # 启用工具复选框
-        self.ai_tools_enabled_checkbox = QCheckBox(
-            "启用 AI 工具调用 (Function Calling)"
-        )
-        self.ai_tools_enabled_checkbox.setChecked(True)
-        self.ai_tools_enabled_checkbox.setToolTip(
-            "部分 API 端点不支持工具调用，如遇 400 错误可尝试取消勾选"
-        )
-        ai_form_layout.addRow(self.ai_tools_enabled_checkbox)
 
         # 测试连接按钮和状态
         test_row = QWidget()
@@ -869,8 +843,6 @@ class SettingsDialog(QDialog):
         self.ai_model_input.setStyleSheet(ThemeManager.get_input_style())
         self.ai_timeout_input.setStyleSheet(ThemeManager.get_input_style())
         self.ai_temperature_input.setStyleSheet(ThemeManager.get_input_style())
-        self.ai_max_history_input.setStyleSheet(ThemeManager.get_input_style())
-        self.ai_tools_enabled_checkbox.setStyleSheet(ThemeManager.get_input_style())
         self.node_timeout_input.setStyleSheet(ThemeManager.get_input_style())
         self.gh_code_input.setStyleSheet(ThemeManager.get_input_style())
 
@@ -906,8 +878,6 @@ class SettingsDialog(QDialog):
         self.ai_model_input.setText(settings.get("model", ""))
         self.ai_timeout_input.setValue(int(settings.get("timeout_seconds", 60)))
         self.ai_temperature_input.setValue(float(settings.get("temperature", 0.2)))
-        self.ai_max_history_input.setValue(int(settings.get("max_history_rounds", 20)))
-        self.ai_tools_enabled_checkbox.setChecked(settings.get("tools_enabled", True))
 
         gh_settings = self.config_manager.get_github_settings()
         if gh_settings.get("connected") and gh_settings.get("username"):
@@ -957,8 +927,6 @@ class SettingsDialog(QDialog):
             "model": self.ai_model_input.text().strip(),
             "timeout_seconds": self.ai_timeout_input.value(),
             "temperature": self.ai_temperature_input.value(),
-            "max_history_rounds": int(self.ai_max_history_input.value()),
-            "tools_enabled": self.ai_tools_enabled_checkbox.isChecked(),
         }
         self.config_manager.set_ai_settings(settings)
 
