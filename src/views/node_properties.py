@@ -20,6 +20,7 @@ from src.core.theme_manager import ThemeManager
 from src.core.node_registry import get_registry, NODE_SOURCE_INFO, NodeSource
 from src.core.log_manager import get_logger
 from src.dialogs.source_code_dialog import SourceCodeDialog
+from src.views.rich_text_edit import RichTextEditWidget
 
 logger = get_logger("node_properties")
 
@@ -269,9 +270,15 @@ class NodePropertiesWidget(QWidget):
         node_type_val = node_type.value if hasattr(node_type, "value") else str(node_type)
         node_def = registry.get_node(node_type_val)
         
-        has_editor = editors.has(node_type_val)
+        is_playwright_editor = bool(
+            node_def
+            and (
+                node_def.metadata.get("editor_type") == "playwright"
+                or node_def.metadata.get("node_kind") == "playwright_script"
+            )
+        )
 
-        if has_editor:
+        if is_playwright_editor:
             self.current_config = build_playwright_default_config(self.current_config)
             self._create_dynamic_schema_form(
                 config_layout,
@@ -318,7 +325,7 @@ class NodePropertiesWidget(QWidget):
         if node_def and node_def.examples:
             self._create_examples_section(node_def.examples)
 
-        if editors.has(node_type_val):
+        if is_playwright_editor:
             self._create_playwright_script_section(node_def)
         else:
             # 源代码区域（可折叠）
@@ -577,6 +584,10 @@ class NodePropertiesWidget(QWidget):
 
             if is_var_ref:
                 widget = self._create_var_ref_widget("" if default_value is None else str(default_value))
+            elif field_type == "richtext":
+                widget = RichTextEditWidget()
+                widget.setMaximumHeight(220)
+                widget.setHtml("" if default_value is None else str(default_value))
             elif field_type == "text":
                 widget = QTextEdit()
                 widget.setMaximumHeight(100)
@@ -647,6 +658,8 @@ class NodePropertiesWidget(QWidget):
                     config[key] = json.loads(text_value) if text_value.strip() else {}
                 else:
                     config[key] = text_value
+            elif isinstance(widget, RichTextEditWidget):
+                config[key] = widget.toHtml()
             elif isinstance(widget, QComboBox):
                 config[key] = widget.currentText()
             elif isinstance(widget, QCheckBox):
@@ -739,7 +752,13 @@ class NodePropertiesWidget(QWidget):
 
     def _create_source_code_section(self, node_type: str, node_def=None):
         """创建源代码展示区域（点击打开弹窗）"""
-        has_editor = editors.has(node_type)
+        has_editor = bool(
+            node_def
+            and (
+                node_def.metadata.get("editor_type") == "playwright"
+                or node_def.metadata.get("node_kind") == "playwright_script"
+            )
+        )
 
         # 加载源代码
         registry = get_registry()

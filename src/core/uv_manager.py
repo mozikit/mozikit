@@ -37,7 +37,16 @@ class UVManager:
         """获取工作流目录"""
         workflow_dir = self.workspace_root / workflow_name
         workflow_dir.mkdir(parents=True, exist_ok=True)
+        # Stable user data/output areas. Existing scripts/runs/.venv locations
+        # remain untouched for workflow compatibility; new file nodes use these
+        # directories through WorkflowPathResolver.
+        for directory in ("assets", "artifacts", ".runtime"):
+            (workflow_dir / directory).mkdir(exist_ok=True)
         return workflow_dir
+
+    def resolve_workflow_path(self, workflow_name: str, path: str, **kwargs) -> Path:
+        from .workflow_paths import WorkflowPathResolver
+        return WorkflowPathResolver(self.get_workflow_dir(workflow_name)).resolve(path, **kwargs)
     
     def get_venv_path(self, workflow_name: str) -> Path:
         """获取虚拟环境路径"""
@@ -326,6 +335,7 @@ class UVManager:
 
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
+            env["MOZIKIT_WORKFLOW_DIR"] = str(self.get_workflow_dir(workflow_name))
             from src.core.runtime_client import RuntimeClient
 
             runtime_client = RuntimeClient()
@@ -827,6 +837,7 @@ class UVManager:
             # 设置环境变量强制使用UTF-8
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
+            env["MOZIKIT_WORKFLOW_DIR"] = str(self.get_workflow_dir(workflow_name))
             from src.core.runtime_client import RuntimeClient
 
             runtime_client = RuntimeClient()
