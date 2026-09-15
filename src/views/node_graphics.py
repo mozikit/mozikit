@@ -8,6 +8,8 @@
 - 更好的视觉层次
 """
 
+import json
+
 from PySide6.QtCore import (
     Property,
     QEasingCurve,
@@ -174,6 +176,14 @@ class NodeGraphicsItem(QGraphicsItem):
         self.config = {}
         self.input_schema = input_schema or {}
         self.output_schema = output_schema or {}
+        self.is_debug_node = node_type_val in {"debug", "debug_output"}
+        self.is_directory_monitor_node = node_type_val in {
+            "folder_watch",
+            "directory_monitor",
+            "directory_watch",
+        }
+        self.runtime_status = {}
+        self.debug_last_output = None
 
         # 尺寸配置 - 动态高度
         self.width = 180
@@ -236,10 +246,18 @@ class NodeGraphicsItem(QGraphicsItem):
         """根据端口数量动态计算节点高度"""
         max_ports = max(len(self.input_schema), len(self.output_schema))
         if max_ports <= 0:
-            return 90
-        port_spacing = 24
-        ports_height = max_ports * port_spacing + 16
-        return min(250, self.header_height + 28 + ports_height + 20)
+            base_height = 90
+        else:
+            port_spacing = 24
+            ports_height = max_ports * port_spacing + 16
+            max_height = 340 if self.is_directory_monitor_node else 250
+            base_height = min(max_height, self.header_height + 28 + ports_height + 20)
+
+        # Debug 节点需要在节点本体内保留一块可读的输出区域，而不是
+        # 只在底部运行结果面板展示数据。
+        if self.is_debug_node:
+            return max(base_height, 170)
+        return base_height
 
     def _create_action_buttons(self):
         """创建操作按钮 - 紧凑版"""
@@ -291,6 +309,21 @@ class NodeGraphicsItem(QGraphicsItem):
         # 居中类型
         type_width = self.type_item.boundingRect().width()
         self.type_item.setPos((self.width - type_width) / 2, self.header_height + 8)
+
+        # Debug 输出区域：内容随下游节点每次完成而更新，直接绘制在节点本体。
+        self.debug_output_item = QGraphicsTextItem("", self)
+        self.debug_output_item.setDefaultTextColor(
+            QColor(ThemeManager.COLORS["text"])
+        )
+        debug_font = QFont(
+            ThemeManager.FONTS["family_primary"].split(",")[0].strip().strip("'"), 8
+        )
+        self.debug_output_item.setFont(debug_font)
+        self.debug_output_item.setTextWidth(self.width - 34)
+        self.debug_output_item.setPos(27, self.header_height + 32)
+        self.debug_output_item.setVisible(self.is_debug_node)
+        if self.is_debug_node:
+            self.debug_output_item.setPlainText("等待上游数据...")
 
         # 运行时间文本（右下角）
         self.duration_item = QGraphicsTextItem("", self)
@@ -353,6 +386,19 @@ class NodeGraphicsItem(QGraphicsItem):
                     lines.append(entry)
                 else:
                     lines.append(f"  {key}")
+
+        runtime_status = self.runtime_status.get("status")
+        if runtime_status:
+            lines.extend(["", f"运行时: {runtime_status}"])
+            runtime_error = self.runtime_status.get("error")
+            if runtime_error:
+                lines.append(f"错误: {runtime_error}")
+            event_count = self.runtime_status.get("event_count")
+            if event_count is not None:
+                lines.append(f"已接收事件: {event_count}")
+
+        if self.last_run_summary:
+            lines.extend(["", self.last_run_summary])
 
         self.setToolTip("\n".join(lines))
 
@@ -903,13 +949,71 @@ class NodeGraphicsItem(QGraphicsItem):
         self._update_duration_text()
         self.update()
 
+    def refresh_config(self):
+        """Refresh visual state after the property editor writes a config."""
+        self._update_tooltip()
+        if self.is_debug_node and getattr(self, "_has_debug_output", False):
+            self.set_debug_output(self.debug_last_output)
+
+    def set_runtime_status(self, status: dict | None):
+        """Show a persistent source's daemon status in the node tooltip."""
+        self.runtime_status = dict(status or {})
+        self._update_tooltip()
+        self.update()
+
+    def set_debug_output(self, node_output):
+        """Render the latest Debug value inside the canvas node."""
+        if not self.is_debug_node:
+            return
+
+        self.debug_last_output = node_output
+        self._has_debug_output = True
+        value = node_output
+        if isinstance(node_output, dict) and "value" in node_output:
+            value = node_output["value"]
+
+        mode = str(self.config.get("display_mode", "auto") or "auto").lower()
+        if mode == "text" or (mode == "auto" and isinstance(value, str)):
+            text = str(value)
+        else:
+            try:
+                text = json.dumps(value, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                text = str(value)
+
+        max_length = self.config.get("max_length", 2000)
+        try:
+            max_length = max(100, min(int(max_length), 20000))
+        except (TypeError, ValueError):
+            max_length = 2000
+        if len(text) > max_length:
+            text = text[: max_length - 3] + "..."
+
+        if self.config.get("show_timestamp", True):
+            from datetime import datetime
+
+            text = f"[{datetime.now().strftime('%H:%M:%S')}]\n{text}"
+
+        # Keep the child text item inside the fixed node body.  The full value
+        # remains available in the execution result/tooltip; the canvas shows
+        # a readable preview instead of overflowing into neighbouring nodes.
+        lines = text.splitlines() or [""]
+        line_height = max(QFontMetrics(self.debug_output_item.font()).height(), 1)
+        available_height = max(self.height - self.header_height - 48, line_height)
+        max_lines = max(1, int(available_height / line_height))
+        if len(lines) > max_lines:
+            lines = lines[: max_lines - 1] + ["..."]
+            text = "\n".join(lines)
+
+        self.debug_output_item.setPlainText(text or "(空值)")
+        self.debug_output_item.setVisible(True)
+        self._update_tooltip()
+        self.update()
+
     def set_run_summary(self, summary: str):
         """更新节点运行摘要提示"""
-        self.last_run_summary = summary.strip()
-        tooltip_lines = [self.title, f"节点ID: {self.node_id}"]
-        if self.last_run_summary:
-            tooltip_lines.extend(["", self.last_run_summary])
-        self.setToolTip("\n".join(tooltip_lines))
+        self.last_run_summary = (summary or "").strip()
+        self._update_tooltip()
         self.update()
 
 

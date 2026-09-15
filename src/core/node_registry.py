@@ -65,6 +65,15 @@ class NodeDefinition:
 class NodeRegistry:
     """节点注册表"""
 
+    # Compatibility names accepted in saved/manual workflow files.  They are
+    # deliberately not separate browser entries, so users see one directory
+    # monitor node instead of three aliases.
+    NODE_ALIASES = {
+        "directory_monitor": "folder_watch",
+        "directory_watch": "folder_watch",
+        "debug_output": "debug",
+    }
+
     NODE_DIRS = [
         "custom_nodes",
         "external_nodes/github",
@@ -86,11 +95,134 @@ class NodeRegistry:
         """Register Core-owned nodes when the optional distribution is absent.
 
         The metadata may still be supplied/updated by official node
-        distribution; this fallback keeps the built-in executor usable in a
-        source checkout and during an interrupted snapshot update.
+        distribution; these fallbacks keep the built-in executors usable in a
+        source checkout and during an interrupted snapshot update.  Runtime
+        implementations are registered independently, so an installed
+        official definition can replace only the presentation metadata.
         """
+        from .builtin_node_executors import (
+            DEBUG_NODE_CONFIG_SCHEMA,
+            DIRECTORY_WATCH_NODE_CONFIG_SCHEMA,
+            register_builtin_node_executors,
+        )
         from .mcp_tool_executor import register_mcp_tool_executor
+
+        register_builtin_node_executors()
         register_mcp_tool_executor()
+
+        # Reserved built-ins must keep their trusted native executor and
+        # graph metadata even when an official snapshot supplied same-named
+        # (possibly stale) presentation data.  Otherwise a node.json update
+        # could silently turn these nodes into scripts or remove their ports.
+        directory_output_schema = {
+            "event": {"type": "object", "description": "完整的文件系统事件"},
+            "event_type": {"type": "string", "description": "created/modified/deleted/moved"},
+            "path": {"type": "string", "description": "事件对应的文件路径"},
+            "src_path": {"type": "string"},
+            "dest_path": {"type": "string"},
+            "directory": {"type": "string"},
+            "filename": {"type": "string"},
+            "is_directory": {"type": "bool"},
+            "timestamp": {"type": "string"},
+        }
+        debug_input_schema = {
+            "input": {"type": "any", "description": "要显示的上游数据"}
+        }
+        debug_output_schema = {
+            "value": {"type": "any", "description": "原样输出的调试数据"}
+        }
+        for node_type, executor_id in (
+            ("folder_watch", "directory_monitor"),
+            ("debug", "debug"),
+        ):
+            existing = self._nodes.get(node_type)
+            if existing is None:
+                continue
+            registrations = dict(existing.registrations or {})
+            registrations["native_executor"] = {"id": executor_id}
+            existing.registrations = registrations
+            if node_type == "folder_watch":
+                existing.config_schema = DIRECTORY_WATCH_NODE_CONFIG_SCHEMA
+                existing.input_schema = {}
+                existing.output_schema = directory_output_schema
+                existing.metadata = {
+                    **dict(existing.metadata or {}),
+                    "icon": "📁",
+                    "persistent_source": True,
+                }
+            else:
+                existing.config_schema = DEBUG_NODE_CONFIG_SCHEMA
+                existing.input_schema = debug_input_schema
+                existing.output_schema = debug_output_schema
+                existing.metadata = {
+                    **dict(existing.metadata or {}),
+                    "icon": "🐞",
+                    "canvas_output": True,
+                }
+
+        if "folder_watch" not in self._nodes:
+            self._nodes["folder_watch"] = NodeDefinition(
+                node_type="folder_watch",
+                name="目录监视",
+                description="监听目录中的文件变化，并将事件传给下游节点。",
+                source=NodeSource.OFFICIAL,
+                category="触发器",
+                source_code="",
+                dependencies=[],
+                version="1.0.0",
+                config_schema=DIRECTORY_WATCH_NODE_CONFIG_SCHEMA,
+                output_schema={
+                    "event": {
+                        "type": "object",
+                        "description": "完整的文件系统事件",
+                    },
+                    "event_type": {"type": "string", "description": "created/modified/deleted/moved"},
+                    "path": {"type": "string", "description": "事件对应的文件路径"},
+                    "src_path": {"type": "string"},
+                    "dest_path": {"type": "string"},
+                    "directory": {"type": "string"},
+                    "filename": {"type": "string"},
+                    "is_directory": {"type": "bool"},
+                    "timestamp": {"type": "string"},
+                },
+                registrations={"native_executor": {"id": "directory_monitor"}},
+                metadata={"icon": "📁", "persistent_source": True},
+            )
+
+        if "debug" not in self._nodes:
+            self._nodes["debug"] = NodeDefinition(
+                node_type="debug",
+                name="Debug 调试",
+                description="实时显示上游节点传入的内容，并继续向下游传递。",
+                source=NodeSource.OFFICIAL,
+                category="调试",
+                source_code="",
+                dependencies=[],
+                version="1.0.0",
+                config_schema=DEBUG_NODE_CONFIG_SCHEMA,
+                input_schema={
+                    "input": {
+                        "type": "any",
+                        "description": "要显示的上游数据",
+                    }
+                },
+                output_schema={
+                    "value": {
+                        "type": "any",
+                        "description": "原样输出的调试数据",
+                    }
+                },
+                registrations={"native_executor": {"id": "debug"}},
+                metadata={"icon": "🐞", "canvas_output": True},
+            )
+
+        # Keep compatibility aliases loadable through get_node(), but do not
+        # show duplicate reserved nodes in the browser when an older official
+        # snapshot contains both names.
+        for alias, canonical in self.NODE_ALIASES.items():
+            if alias != canonical and alias in self._nodes and canonical in self._nodes:
+                del self._nodes[alias]
+
         if "mcp_tool" in self._nodes:
             return
         self._nodes["mcp_tool"] = NodeDefinition(
@@ -453,6 +585,8 @@ class NodeRegistry:
         """获取指定节点 (支持枚举 or 字符串)"""
         # 直接尝试获取
         node = self._nodes.get(node_type)
+        if node is None and isinstance(node_type, str):
+            node = self._nodes.get(self.NODE_ALIASES.get(node_type, node_type))
         if node:
             return node
 
@@ -485,6 +619,7 @@ class NodeRegistry:
             "color": NODE_SOURCE_INFO[node.source]["color"],
             "repo_url": node.repo_url,
             "metadata": node.metadata,
+            "config_schema": node.config_schema,
             "dependencies": node.dependencies,
             "version": node.version,
             "input_schema": node.input_schema,

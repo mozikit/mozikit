@@ -36,6 +36,7 @@ from src.core.node_base import NodeBase
 from src.core.node_registry import get_registry
 from src.core.uv_manager import UVManager
 from src.core import resolve_workspace
+from src.core.workflow_service import WorkflowService
 
 app = typer.Typer(
     name="mozikit",
@@ -1523,26 +1524,18 @@ def workflow_list(
 
 
 def _set_workflow_activation(workflow_path: str, active: bool) -> dict:
-    path = Path(workflow_path).expanduser().resolve()
-    if not path.is_file():
-        console.print(f"[red]错误:[/] 工作流文件不存在: {path}")
-        raise typer.Exit(code=1)
     try:
-        workspace = resolve_workspace().expanduser().resolve()
-        if not path.is_relative_to(workspace):
-            raise ValueError("工作流必须位于当前 workspace 中")
-        document = json.loads(path.read_text(encoding="utf-8"))
-        if active and not document.get("triggers"):
-            raise ValueError("工作流没有配置 Trigger")
-        if "workflow_id" not in document:
-            import uuid
-
-            document["workflow_id"] = str(uuid.uuid4())
-        document["active"] = active
-        write_workflow_file(str(path), document)
-        return document
+        return WorkflowService().set_active(workflow_path, active)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
-        console.print(f"[red]错误:[/] 更新工作流激活状态失败: {exc}")
+        message = (
+            str(exc)
+            .replace(
+                "workflow has no configured triggers or directory monitor nodes",
+                "工作流没有配置 Trigger 或目录监视节点",
+            )
+            .replace("workflow has no configured triggers", "工作流没有配置 Trigger")
+        )
+        console.print(f"[red]错误:[/] 更新工作流激活状态失败: {message}")
         raise typer.Exit(code=1)
 
 
@@ -1552,7 +1545,15 @@ def workflow_activate(workflow_path: str = typer.Argument(..., help="工作流�
     _set_workflow_activation(workflow_path, True)
     from src.core.runtime_client import RuntimeClient
 
-    RuntimeClient().ensure_running(required=True)
+    try:
+        RuntimeClient().ensure_running(required=True)
+    except Exception as exc:
+        try:
+            _set_workflow_activation(workflow_path, False)
+        except typer.Exit:
+            logger.exception("Runtime 启动失败后回滚工作流激活状态也失败")
+        console.print(f"[red]错误:[/] Runtime Daemon 启动失败，已回滚工作流激活状态: {exc}")
+        raise typer.Exit(code=1)
     console.print("[green]工作流已激活[/]")
 
 
@@ -1561,6 +1562,302 @@ def workflow_deactivate(workflow_path: str = typer.Argument(..., help="工作流
     """停用工作流的持久 Trigger。"""
     _set_workflow_activation(workflow_path, False)
     console.print("[yellow]工作流已停用[/]")
+
+
+def _workflow_status(workflow: str) -> dict:
+    service = WorkflowService()
+    path, document = service.read(workflow)
+    workflow_id = document.get("workflow_id") or str(path)
+    runtime = "stopped"
+    runtime_status = {}
+    try:
+        from src.core.runtime_client import RuntimeClient
+        client = RuntimeClient()
+        if client.is_running():
+            runtime = "running"
+            runtime_status = client.trigger_status()
+    except Exception:
+        pass
+    actual = runtime_status.get("actual", {})
+    errors = runtime_status.get("errors", {})
+    records = []
+    configured_triggers = document.get("triggers", [])
+    if not isinstance(configured_triggers, list):
+        configured_triggers = []
+    configured_sources = list(configured_triggers)
+    from src.core.builtin_node_executors import DIRECTORY_WATCH_NODE_TYPES
+
+    explicit_ids = {
+        item.get("trigger_id")
+        for item in configured_sources
+        if isinstance(item, dict)
+    }
+    for node in document.get("nodes", []) if isinstance(document.get("nodes", []), list) else []:
+        if not isinstance(node, dict) or node.get("node_type") not in DIRECTORY_WATCH_NODE_TYPES:
+            continue
+        node_id = node.get("node_id")
+        if not isinstance(node_id, str) or node_id in explicit_ids:
+            continue
+        node_config = node.get("config", {})
+        configured_sources.append(
+            {
+                "trigger_id": node_id,
+                "trigger_type": "folder_watch",
+                "enabled": (node_config.get("enabled", True) is True)
+                if isinstance(node_config, dict)
+                else False,
+                "config": node_config if isinstance(node_config, dict) else {},
+            }
+        )
+    workflow_actual = {
+        key: value
+        for key, value in actual.items()
+        if key.startswith(f"{workflow_id}/")
+    }
+    workflow_errors = {
+        key: value
+        for key, value in errors.items()
+        if key.startswith(f"{workflow_id}/")
+    }
+    for index, item in enumerate(configured_sources):
+        if not isinstance(item, dict):
+            continue
+        trigger_id = item.get("trigger_id") or f"trigger-{index + 1}"
+        key = f"{workflow_id}/{trigger_id}"
+        observed = actual.get(key, {})
+        enabled = item.get("enabled", True) is True
+        if not enabled:
+            trigger_state = "disabled"
+        elif observed.get("status"):
+            trigger_state = observed["status"]
+        elif key in errors:
+            trigger_state = "error"
+        else:
+            trigger_state = "stopped"
+        records.append({
+            "trigger_id": trigger_id,
+            "trigger_type": item.get("trigger_type"),
+            "enabled": enabled,
+            "status": trigger_state,
+            "config": item.get("config", {}),
+            "runtime_config": observed.get("config"),
+            "error": observed.get("error") or errors.get(key),
+            "last_event": observed.get("last_event"),
+            "event_count": observed.get("event_count", 0),
+        })
+    if not document.get("active"):
+        workflow_runtime = "stopped"
+    elif workflow_errors:
+        workflow_runtime = "error"
+    elif any(item.get("status") == "running" for item in records):
+        workflow_runtime = "running"
+    else:
+        workflow_runtime = "stopped"
+    return {
+        "workflow_id": workflow_id,
+        "workflow_name": document.get("workflow_name", path.parent.name),
+        "active": document.get("active") is True,
+        "runtime": workflow_runtime,
+        "daemon": runtime,
+        "triggers": records,
+    }
+
+
+@workflow_app.command("status")
+def workflow_status(workflow: str = typer.Argument(..., help="工作流路径或名称"), json_output: bool = typer.Option(False, "--json", "-j")):
+    """显示工作流和 Trigger 的实际运行状态。"""
+    try:
+        result = _workflow_status(workflow)
+    except (OSError, json.JSONDecodeError, ValueError, FileNotFoundError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    console.print(f"Workflow: {result['workflow_name']}")
+    console.print(f"Status:   {'Active' if result['active'] else 'Inactive'}")
+    console.print(f"Runtime:  {result['runtime'].capitalize()}")
+    console.print("\nTriggers:")
+    for item in result["triggers"]:
+        console.print(f"  {item['trigger_id']}\n    Type:      {item['trigger_type']}\n    Status:    {item['status']}")
+        if item["config"].get("path"):
+            console.print(f"    Path:      {item['config']['path']}")
+        if item["error"]:
+            console.print(f"    Error:     {item['error']}")
+
+
+trigger_app = typer.Typer(help="工作流 Trigger 管理", no_args_is_help=True)
+workflow_app.add_typer(trigger_app, name="trigger")
+
+
+@trigger_app.command("list")
+def workflow_trigger_list(workflow: str, json_output: bool = typer.Option(False, "--json", "-j")):
+    result = _workflow_status(workflow)["triggers"]
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2)); return
+    for item in result:
+        console.print(f"{item['trigger_id']}  {item['trigger_type']}  {item['status']}")
+
+
+@trigger_app.command("show")
+def workflow_trigger_show(
+    workflow: str,
+    trigger_id: str,
+    json_output: bool = typer.Option(False, "--json", "-j"),
+):
+    """显示一个 Trigger 的配置和实际状态。"""
+    try:
+        result = next(
+            item
+            for item in _workflow_status(workflow)["triggers"]
+            if item["trigger_id"] == trigger_id
+        )
+    except (OSError, json.JSONDecodeError, ValueError, FileNotFoundError, StopIteration) as exc:
+        console.print(f"[red]错误:[/] Trigger 不存在: {trigger_id}" if isinstance(exc, StopIteration) else f"[red]错误:[/] {exc}")
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    console.print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _trigger_config_patch(
+    *,
+    path: Optional[str] = None,
+    recursive: Optional[bool] = None,
+    event: Optional[List[str]] = None,
+    include: Optional[List[str]] = None,
+    exclude: Optional[List[str]] = None,
+    debounce: Optional[int] = None,
+    settle: Optional[int] = None,
+    ignore_directories: Optional[bool] = None,
+) -> dict:
+    patch = {}
+    if path is not None:
+        patch["path"] = path
+    if recursive is not None:
+        patch["recursive"] = recursive
+    if event is not None:
+        patch["events"] = event
+    if include is not None:
+        patch["include"] = include
+    if exclude is not None:
+        patch["exclude"] = exclude
+    if debounce is not None:
+        patch["debounce_ms"] = debounce
+    if settle is not None:
+        patch["settle_ms"] = settle
+    if ignore_directories is not None:
+        patch["ignore_directories"] = ignore_directories
+    return patch
+
+
+def _ensure_runtime_for_active_workflow(workflow: str):
+    if WorkflowService().read(workflow)[1].get("active") is True:
+        from src.core.runtime_client import RuntimeClient
+
+        RuntimeClient().ensure_running(required=True)
+
+
+@trigger_app.command("add")
+def workflow_trigger_add(
+    workflow: str,
+    trigger_type: str,
+    trigger_id: str = typer.Option(..., "--id"),
+    path: Optional[str] = typer.Option(None, "--path"),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive"),
+    event: Optional[List[str]] = typer.Option(None, "--event"),
+    include: Optional[List[str]] = typer.Option(None, "--include"),
+    exclude: Optional[List[str]] = typer.Option(None, "--exclude"),
+    debounce: int = typer.Option(400, "--debounce"),
+    settle: int = typer.Option(300, "--settle"),
+    ignore_directories: bool = typer.Option(True, "--ignore-directories/--include-directories"),
+):
+    try:
+        config = _trigger_config_patch(
+            path=path,
+            recursive=recursive,
+            event=event or ["created", "modified", "deleted", "moved"],
+            include=include or [],
+            exclude=exclude or [],
+            debounce=debounce,
+            settle=settle,
+            ignore_directories=ignore_directories,
+        )
+        item = WorkflowService().add_trigger(workflow, trigger_type, trigger_id, config)
+        _ensure_runtime_for_active_workflow(workflow)
+        console.print(f"[green]Trigger 已添加:[/] {item['trigger_id']}")
+    except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
+        console.print(f"[red]错误:[/] {exc}"); raise typer.Exit(code=1)
+
+
+def _trigger_update(
+    workflow: str,
+    trigger_id: str,
+    *,
+    config: Optional[dict] = None,
+    enabled: bool | None = None,
+    remove: bool = False,
+):
+    try:
+        WorkflowService().update_trigger(
+            workflow, trigger_id, config=config, enabled=enabled, remove=remove
+        )
+        _ensure_runtime_for_active_workflow(workflow)
+        console.print("[green]Trigger 已更新[/]")
+    except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
+        console.print(f"[red]错误:[/] {exc}"); raise typer.Exit(code=1)
+
+
+@trigger_app.command("enable")
+def workflow_trigger_enable(workflow: str, trigger_id: str):
+    _trigger_update(workflow, trigger_id, enabled=True)
+
+@trigger_app.command("disable")
+def workflow_trigger_disable(workflow: str, trigger_id: str):
+    _trigger_update(workflow, trigger_id, enabled=False)
+
+@trigger_app.command("remove")
+def workflow_trigger_remove(workflow: str, trigger_id: str):
+    _trigger_update(workflow, trigger_id, remove=True)
+
+
+@trigger_app.command("set")
+def workflow_trigger_set(
+    workflow: str,
+    trigger_id: str,
+    path: Optional[str] = typer.Option(None, "--path"),
+    recursive: Optional[bool] = typer.Option(None, "--recursive/--no-recursive"),
+    event: Optional[List[str]] = typer.Option(None, "--event"),
+    include: Optional[List[str]] = typer.Option(None, "--include"),
+    exclude: Optional[List[str]] = typer.Option(None, "--exclude"),
+    debounce: Optional[int] = typer.Option(None, "--debounce"),
+    settle: Optional[int] = typer.Option(None, "--settle"),
+    ignore_directories: Optional[bool] = typer.Option(
+        None, "--ignore-directories/--include-directories"
+    ),
+):
+    """部分更新 Trigger 配置，未指定的字段保持不变。"""
+    config = _trigger_config_patch(
+        path=path,
+        recursive=recursive,
+        event=event,
+        include=include,
+        exclude=exclude,
+        debounce=debounce,
+        settle=settle,
+        ignore_directories=ignore_directories,
+    )
+    if not config:
+        console.print("[yellow]没有指定要修改的配置[/]")
+        raise typer.Exit(code=2)
+    _trigger_update(workflow, trigger_id, config=config)
+
+@trigger_app.command("status")
+def workflow_trigger_status(workflow: str, json_output: bool = typer.Option(False, "--json", "-j")):
+    result = _workflow_status(workflow)["triggers"]
+    if json_output: typer.echo(json.dumps(result, ensure_ascii=False, indent=2)); return
+    for item in result: console.print(f"{item['trigger_id']}  {item['status']}")
 
 
 @workflow_app.command("validate")

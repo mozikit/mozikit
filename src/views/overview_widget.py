@@ -863,9 +863,10 @@ class OverviewWidget(QWidget):
                     workflow_data = json.load(f)
 
                 workflow_widget = WorkflowTabWidget(workflow_name, self._main_window)
+                workflow_widget.workflow_path = str(Path(workflow_path).resolve())
                 workflow_widget.executor.workflow_id = workflow_data.get(
-                    "workflow_id", workflow_widget.executor.workflow_id
-                )
+                    "workflow_id"
+                ) or str(Path(workflow_path).resolve())
                 workflow_widget.executor.active = workflow_data.get("active", False) is True
                 triggers = workflow_data.get("triggers", [])
                 workflow_widget.executor.triggers = (
@@ -904,6 +905,13 @@ class OverviewWidget(QWidget):
                     workflow_widget.canvas._scene.addItem(node_item)
                     workflow_widget.nodes[node_id] = node_item
 
+                # Triggers are daemon-owned configuration, represented on the
+                # canvas without adding them to executor.nodes.  Directory
+                # monitor nodes remain normal graph nodes and are handled by
+                # the Runtime Daemon as implicit sources.
+                workflow_widget.add_trigger_visuals(triggers)
+                workflow_widget._refresh_monitor_button()
+
                 version = workflow_data.get("version", 1)
                 for edge_data in workflow_data.get("edges", []):
                     # 解析边数据（兼容新旧格式）
@@ -922,13 +930,12 @@ class OverviewWidget(QWidget):
                         ConnectionInfo(from_id, from_port_name, to_id, to_port_name)
                     )
 
-                    if (
-                        from_id in workflow_widget.nodes
-                        and to_id in workflow_widget.nodes
-                    ):
-                        from_node = workflow_widget.nodes[from_id]
-                        to_node = workflow_widget.nodes[to_id]
+                    from_node = workflow_widget.nodes.get(from_id)
+                    if from_node is None and isinstance(from_id, str) and from_id.startswith("trigger:"):
+                        from_node = workflow_widget.trigger_items.get(from_id.split(":", 1)[1])
+                    to_node = workflow_widget.nodes.get(to_id)
 
+                    if from_node is not None and to_node is not None:
                         if from_node.output_ports and to_node.input_ports:
                             from src.views.node_graphics import ConnectionGraphicsItem
 

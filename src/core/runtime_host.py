@@ -13,6 +13,7 @@ from .runtime_manager import RuntimeManager, RuntimeService
 from .runtime_registry import RuntimeRegistry, runtime_registry
 from .runtime_paths import get_runtime_dir
 from .test_trigger import TestTrigger
+from .folder_watch_trigger import FolderWatchTrigger
 from .trigger_manager import TriggerManager
 from .trigger_registry import trigger_registry
 from . import resolve_workspace
@@ -73,6 +74,7 @@ class RuntimeHost:
         )
         self.definition_paths = [Path(path) for path in (definition_paths or [])]
         trigger_registry.register("test", TestTrigger)
+        trigger_registry.register("folder_watch", FolderWatchTrigger)
         self.trigger_manager = trigger_manager or TriggerManager(
             workflows_dir or str(resolve_workspace()),
             state_path=runtime_dir / "trigger-state.json",

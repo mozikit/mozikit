@@ -3,6 +3,7 @@ import os
 import shutil
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Set
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
@@ -21,8 +22,12 @@ from PySide6.QtWidgets import (
 from src.core.log_manager import get_logger
 from src.core.theme_manager import ThemeManager
 from src.core.uv_manager import UVManager
+from src.core.builtin_node_executors import DIRECTORY_WATCH_NODE_TYPES
+from src.core.runtime_client import RuntimeClient
 from src.core.workflow_executor import WorkflowExecutor, write_workflow_file
 from src.core.workflow_run_worker import WorkflowRunWorker
+from src.core.workflow_service import WorkflowService
+from src.core.trigger_definition_registry import get_trigger_definition
 from src.views.toast_widget import ToastWidget
 
 from .workflow_canvas import WorkflowCanvas, WorkflowGraphicsScene
@@ -67,6 +72,7 @@ class WorkflowTabWidget(QWidget):
         super().__init__(parent)
         self.workflow_name = workflow_name
         self.main_window = parent
+        self.workflow_path = None
 
         # 修改状态标记
         self._is_modified = False
@@ -77,6 +83,8 @@ class WorkflowTabWidget(QWidget):
 
         # 节点数据字典 {node_id: node_graphics_item}
         self.nodes = {}
+        # Visual-only trigger items; these are not executable Workflow Nodes.
+        self.trigger_items = {}
         # 连接数据 [ConnectionInfo]
         self.connections = []
 
@@ -158,6 +166,13 @@ class WorkflowTabWidget(QWidget):
         self.run_btn.clicked.connect(self._execute_workflow)
         toolbar_layout.addWidget(self.run_btn)
 
+        # 持久目录监视由 Runtime Daemon 托管，与一次性的“执行工作流”分开。
+        self.monitor_btn = QPushButton("▶ 启动监听")
+        self.monitor_btn.setStyleSheet(ThemeManager.get_button_style("secondary"))
+        self.monitor_btn.setToolTip("激活工作流中的目录监视节点/Trigger")
+        self.monitor_btn.clicked.connect(self._toggle_monitoring)
+        toolbar_layout.addWidget(self.monitor_btn)
+
         self.stop_btn = QPushButton("⏹ 停止")
         self.stop_btn.setStyleSheet(ThemeManager.get_button_style("danger"))
         self.stop_btn.setToolTip("停止正在执行的工作流")
@@ -195,6 +210,7 @@ class WorkflowTabWidget(QWidget):
 
         layout.addWidget(self.canvas)
         self.setLayout(layout)
+        self._refresh_monitor_button()
 
     def _on_node_added(self, node_item):
         """节点被添加到画布"""
@@ -202,6 +218,8 @@ class WorkflowTabWidget(QWidget):
 
         if not node_item.config:
             node_item.config = get_registry().build_default_config(node_item.node_type)
+        if hasattr(node_item, "refresh_config"):
+            node_item.refresh_config()
 
         self.nodes[node_item.node_id] = node_item
         node_type_val = (
@@ -210,11 +228,100 @@ class WorkflowTabWidget(QWidget):
             else str(node_item.node_type)
         )
         logger.info("节点已添加: %s (%s)", node_item.node_id, node_type_val)
+        self._refresh_monitor_button()
         self._set_modified(True)
+
+    def _has_persistent_sources(self) -> bool:
+        """Return whether this workflow has an enabled persistent source."""
+        if any(
+            isinstance(trigger, dict)
+            and trigger.get("enabled", True) is True
+            for trigger in self.executor.triggers
+        ):
+            return True
+        return any(
+            (
+                item.node_type.value
+                if hasattr(item.node_type, "value")
+                else str(item.node_type)
+            ) in DIRECTORY_WATCH_NODE_TYPES
+            and isinstance(item.config or {}, dict)
+            and (item.config or {}).get("enabled", True) is True
+            and isinstance((item.config or {}).get("path"), str)
+            and bool((item.config or {}).get("path", "").strip())
+            for item in self.nodes.values()
+        )
+
+    def _refresh_monitor_button(self) -> None:
+        """Keep the workflow-level persistent monitoring control in sync."""
+        if not hasattr(self, "monitor_btn"):
+            return
+        active = self.executor.active is True
+        self.monitor_btn.setText("⏹ 停止监听" if active else "▶ 启动监听")
+        self.monitor_btn.setToolTip(
+            "停用此工作流的目录监视/Trigger"
+            if active
+            else "激活此工作流的目录监视节点/Trigger"
+        )
+
+    def _toggle_monitoring(self) -> None:
+        """Activate/deactivate daemon-owned directory monitor sources."""
+        # Read the current form values before checking the source list.  This
+        # lets a user choose a directory and immediately click Start without
+        # an extra Apply click.
+        self._sync_active_property_panel()
+        target_active = not (self.executor.active is True)
+        # Deactivation must always remain available, even if the source was
+        # disabled or deleted while the workflow was active.
+        if target_active and not self._has_persistent_sources():
+            QMessageBox.information(
+                self,
+                "没有监视源",
+                "请先拖入“目录监视”节点，或为工作流配置 Trigger。",
+            )
+            return
+        if self._run_worker and self._run_worker.isRunning():
+            QMessageBox.warning(self, "无法切换监听", "工作流正在执行中，请稍后再试。")
+            return
+
+        if not self.workflow_path or self._is_modified:
+            self._save_workflow_sync()
+        if not self.workflow_path:
+            self.workflow_path = str(
+                Path("workflows") / self.workflow_name / "workflow.json"
+            )
+        workflow_path = Path(self.workflow_path).expanduser().resolve()
+        if not workflow_path.is_file():
+            QMessageBox.warning(self, "无法切换监听", "请先保存工作流。")
+            return
+
+        service = WorkflowService(workflow_path.parent.parent)
+        try:
+            service.set_active(str(workflow_path), target_active)
+            if target_active:
+                try:
+                    RuntimeClient().ensure_running(required=True)
+                except Exception:
+                    # Do not leave a workflow marked active if the daemon
+                    # could not be started.
+                    service.set_active(str(workflow_path), False)
+                    raise
+            self.executor.active = target_active
+            self._set_modified(False)
+            self._refresh_monitor_button()
+            ToastWidget.show(
+                self,
+                "目录监听已启动" if target_active else "目录监听已停止",
+                "success",
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            QMessageBox.warning(self, "监听状态更新失败", str(exc))
+            self._refresh_monitor_button()
 
     def _on_node_selected(self, node_item):
         """节点被选中"""
-        if self.main_window and hasattr(self.main_window, "execution_results"):
+        is_trigger = getattr(node_item, "is_trigger_visual", False)
+        if not is_trigger and self.main_window and hasattr(self.main_window, "execution_results"):
             self.main_window.execution_results.show_node_result(node_item.node_id)
             if not self.main_window.execution_results_dock.isVisible():
                 from src.core.theme_manager import ThemeManager
@@ -234,9 +341,27 @@ class WorkflowTabWidget(QWidget):
                 right_dock.hide()
                 return
 
-            self.main_window.node_properties.load_node_properties(
-                node_item.node_id, node_item.node_type, node_item.config
-            )
+            if is_trigger:
+                try:
+                    trigger = WorkflowService.get_trigger_model(
+                        self.executor, node_item.trigger_id
+                    )
+                    definition = get_trigger_definition(trigger.get("trigger_type"))
+                    schema = definition.config_schema if definition else {}
+                    node_properties.load_trigger_properties(
+                        node_item.trigger_id,
+                        trigger.get("trigger_type", node_item.trigger_type),
+                        trigger.get("config") or {},
+                        schema,
+                        trigger.get("enabled", True) is True,
+                    )
+                except (KeyError, ValueError) as exc:
+                    logger.warning("无法加载 Trigger 属性: %s", exc)
+                    node_properties.clear_properties()
+            else:
+                self.main_window.node_properties.load_node_properties(
+                    node_item.node_id, node_item.node_type, node_item.config
+                )
             if hasattr(self.main_window, "_right_dock"):
                 self.main_window._right_tab_widget.setCurrentIndex(0)
                 if not self.main_window._right_dock.isVisible():
@@ -260,6 +385,7 @@ class WorkflowTabWidget(QWidget):
                 if self.main_window.node_properties.current_node_id == node_id:
                     self.main_window.node_properties.clear_properties()
 
+            self._refresh_monitor_button()
             self._set_modified(True)
 
     def _on_connection_created(
@@ -282,9 +408,51 @@ class WorkflowTabWidget(QWidget):
         """更新节点配置"""
         if node_id in self.nodes:
             node_item = self.nodes[node_id]
-            node_item.config = config
+            node_item.config = dict(config or {})
+            if hasattr(node_item, "refresh_config"):
+                node_item.refresh_config()
             logger.info("节点配置已更新: %s", node_id)
+            self._refresh_monitor_button()
             self._set_modified(True)
+
+    def get_trigger(self, trigger_id: str) -> dict:
+        """Return the current Trigger from the Workflow Model by stable ID."""
+        return WorkflowService.get_trigger_model(self.executor, trigger_id)
+
+    def update_trigger_config(
+        self, trigger_id: str, config: dict, enabled: Optional[bool] = None
+    ):
+        """Update the Workflow Model; the canvas item remains visual-only."""
+        trigger = WorkflowService.update_trigger_model(
+            self.executor, trigger_id, config=config, enabled=enabled
+        )
+        visual = self.trigger_items.get(trigger_id)
+        if visual is not None:
+            visual.refresh_from_definition(trigger)
+        self._set_modified(True)
+
+    def update_trigger_runtime_status(self, trigger_id: str, status: dict | None):
+        """Project daemon status into the visual item and selected properties UI."""
+        visual = self.trigger_items.get(trigger_id)
+        if visual is not None:
+            visual.set_runtime_status(status)
+        if (
+            self.main_window
+            and hasattr(self.main_window, "node_properties")
+            and self.main_window.node_properties.current_object_kind == "trigger"
+            and self.main_window.node_properties.current_node_id == trigger_id
+        ):
+            self.main_window.node_properties.set_trigger_runtime_status(status)
+
+    def update_node_runtime_status(self, node_id: str, status: dict | None):
+        """Project implicit directory-monitor status onto the graph node."""
+        node_item = self.nodes.get(node_id)
+        if node_item and getattr(node_item, "is_directory_monitor_node", False):
+            node_item.set_runtime_status(status)
+
+    def apply_external_run_report(self, report: dict):
+        """Apply a daemon-triggered report to this tab and its Debug nodes."""
+        self._apply_run_report(report or {})
 
     def _set_modified(self, modified: bool):
         """设置修改状态"""
@@ -311,7 +479,10 @@ class WorkflowTabWidget(QWidget):
         node_properties = self.main_window.node_properties
         # 属性面板允许先编辑、后点击保存工作流；这里统一兜底同步一次，
         # 避免节点已在画布上但最新表单值还没写回 self.nodes。
-        if node_properties.current_node_id in self.nodes:
+        if node_properties.current_object_kind == "trigger":
+            if node_properties.current_node_id in self.trigger_items:
+                node_properties.sync_current_config()
+        elif node_properties.current_node_id in self.nodes:
             node_properties.sync_current_config()
 
     def _create_runtime_node(self, node_id: str, node_item):
@@ -354,6 +525,25 @@ class WorkflowTabWidget(QWidget):
                     conn.to_node_id,
                     conn.to_port_name,
                 )
+
+    def add_trigger_visuals(self, triggers: list[dict]) -> None:
+        """Project persisted triggers onto the canvas without changing runtime data."""
+        from .trigger_graphics import TriggerGraphicsItem
+
+        for item in self.trigger_items.values():
+            self.canvas._scene.removeItem(item)
+        self.trigger_items.clear()
+
+        if not isinstance(triggers, list):
+            return
+        node_x = min((item.pos().x() for item in self.nodes.values()), default=0)
+        for index, trigger in enumerate(triggers):
+            if not isinstance(trigger, dict):
+                continue
+            visual = TriggerGraphicsItem(trigger)
+            visual.setPos(node_x - 240, index * 130)
+            self.canvas._scene.addItem(visual)
+            self.trigger_items[visual.trigger_id] = visual
 
     def _collect_upstream_node_ids(self, target_node_id: str) -> set:
         """收集目标节点及其所有上游节点"""
@@ -407,6 +597,15 @@ class WorkflowTabWidget(QWidget):
             parts.append(f"异常: {first_line}")
         return "\n".join(parts)
 
+    def _update_debug_node_from_report(self, node_report: dict) -> None:
+        """Project a completed Debug value into its canvas item."""
+        node_id = node_report.get("node_id")
+        node_item = self.nodes.get(node_id)
+        if not node_item or not getattr(node_item, "is_debug_node", False):
+            return
+        if node_report.get("success"):
+            node_item.set_debug_output(node_report.get("output", {}))
+
     def _apply_run_report(self, report: dict):
         """将运行报告同步到节点状态和底部面板"""
         self._reset_node_run_states()
@@ -429,6 +628,7 @@ class WorkflowTabWidget(QWidget):
 
             if hasattr(node_item, "set_run_summary"):
                 node_item.set_run_summary(self._build_node_summary(node_report))
+            self._update_debug_node_from_report(node_report)
 
         if self.main_window and hasattr(self.main_window, "show_execution_report"):
             self.main_window.show_execution_report(report)
@@ -623,6 +823,7 @@ class WorkflowTabWidget(QWidget):
                 node_item.set_error(True, duration_ms)
             if hasattr(node_item, "set_run_summary"):
                 node_item.set_run_summary(self._build_node_summary(node_report))
+            self._update_debug_node_from_report(node_report)
 
         if self.main_window and hasattr(self.main_window, "execution_results"):
             self.main_window.execution_results.append_node_result(node_report)
@@ -779,6 +980,7 @@ class WorkflowTabWidget(QWidget):
 
     def _on_save_success(self, save_path: str):
         """保存成功回调（主线程）"""
+        self.workflow_path = str(Path(save_path).resolve())
         self._set_modified(False)
         logger.info("工作流已保存: %s", save_path)
         ToastWidget.show(self, f"工作流 '{self.workflow_name}' 保存成功！", "success")
@@ -831,6 +1033,7 @@ class WorkflowTabWidget(QWidget):
 
             canvas_state = self.canvas.get_canvas_state()
             self.executor.save_workflow(save_path, node_positions, canvas_state)
+            self.workflow_path = str(Path(save_path).resolve())
             self._set_modified(False)
             logger.info("工作流已保存(同步): %s", save_path)
         except Exception as e:

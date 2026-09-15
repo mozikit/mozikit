@@ -11,3 +11,4 @@ click>=8.0
 typer>=0.12
 rich>=13.0
 mcp>=2,<3
+watchdog>=4.0

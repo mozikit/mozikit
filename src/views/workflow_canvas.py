@@ -748,6 +748,8 @@ class WorkflowCanvas(QGraphicsView):
             if item.type() == QGraphicsItem.UserType + 1 or isinstance(
                 item, NodeGraphicsItem
             ):
+                if getattr(item, "is_trigger_visual", False):
+                    continue
                 nodes.append(
                     {
                         "node_id": item.node_id,
@@ -837,6 +839,8 @@ class WorkflowCanvas(QGraphicsView):
         connections = []
         for item in self._scene.items():
             if isinstance(item, NodeGraphicsItem):
+                if getattr(item, "is_trigger_visual", False):
+                    continue
                 nodes.append(item)
             elif isinstance(item, ConnectionGraphicsItem):
                 connections.append(item)

@@ -1,6 +1,7 @@
 """Shared identity contract for Runtime Daemon clients and servers."""
 
 import hashlib
+import os
 from pathlib import Path
 
 from src.core import __version__
@@ -16,11 +17,13 @@ def desired_state_fingerprint(runtime_dir: Path) -> str:
         candidates.extend(
             path
             for path in plugin_root.rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
+            if os.path.isfile(path) and "__pycache__" not in path.parts
         )
     digest = hashlib.sha256()
     for path in sorted(candidates, key=lambda item: str(item)):
-        if not path.is_file():
+        # Avoid pathlib predicates here: CLI tests and embedders may patch
+        # Path.is_file while validating workflow paths.
+        if not os.path.isfile(path):
             continue
         try:
             relative = path.relative_to(runtime_dir)

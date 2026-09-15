@@ -89,7 +89,9 @@ class WorkflowExecutor:
         self.node_outputs: Dict[str, Dict[str, Any]] = {}
         self._stop_event = threading.Event()
         self._worker_process = None
+        from .builtin_node_executors import register_builtin_node_executors
         from .mcp_tool_executor import register_mcp_tool_executor
+        register_builtin_node_executors()
         register_mcp_tool_executor()
 
     def add_node(self, node: NodeBase):
@@ -171,14 +173,19 @@ class WorkflowExecutor:
         input_data = {}
 
         for edge in incoming_edges:
-            # 获取上游节点的输出
+            # 获取上游节点的输出。子图执行时，一个存在但未包含在
+            # 当前入口子图内的普通节点不能回退到全局 context，否则另一
+            # 个目录监视分支可能通过同名 context 键串入本次运行。
             upstream_output = self.node_outputs.get(edge.from_node)
+            upstream_node = self.nodes.get(edge.from_node)
             if upstream_output is None:
-                # 上游尚未执行，从 context 中查找
-                upstream_output = self.context
+                if upstream_node is None and edge.from_node.startswith("trigger:"):
+                    # Visual-only explicit Trigger exposes the initial event.
+                    upstream_output = self.context
+                else:
+                    upstream_output = {}
 
             # 获取上游节点的 output_schema 以解析 from_port 的 from_config
-            upstream_node = self.nodes.get(edge.from_node)
             upstream_type = (
                 upstream_node.node_type.value
                 if upstream_node and hasattr(upstream_node.node_type, "value")
@@ -204,8 +211,17 @@ class WorkflowExecutor:
                 # 从上游输出中取值
                 value = upstream_output.get(output_key) if output_key else None
             else:
-                # 无 from_config，直接用端口名作为输出 key
-                value = upstream_output.get(edge.from_port)
+                # 无 from_config，直接用端口名作为输出 key。Visual-only
+                # explicit Triggers are not executable nodes, so their output
+                # port is represented by the run's initial context payload.
+                if upstream_node is None and edge.from_node.startswith("trigger:"):
+                    value = (
+                        self.context
+                        if edge.from_port in {"output", "event", "value"}
+                        else upstream_output.get(edge.from_port)
+                    )
+                else:
+                    value = upstream_output.get(edge.from_port)
 
             # 解析目标输入键：使用 input_schema 中 to_port 的 from_config
             input_port_schema = input_schema.get(edge.to_port, {})
@@ -236,7 +252,10 @@ class WorkflowExecutor:
         return input_data
 
     def prepare_environment(
-        self, python_version: str = None, packages: List[str] = None
+        self,
+        python_version: str = None,
+        packages: List[str] = None,
+        node_ids: Optional[set[str]] = None,
     ) -> bool:
         """
         准备工作流执行环境
@@ -244,11 +263,24 @@ class WorkflowExecutor:
         Args:
             python_version: Python版本
             packages: 需要额外安装的包列表
+            node_ids: 可选的执行子图节点集合
 
         Returns:
             是否准备成功
         """
-        all_dependencies = self._collect_node_dependencies()
+        selected = set(self.nodes) if node_ids is None else set(node_ids)
+        native_only = bool(selected) and all(
+            self._native_executor_id(node)
+            for node_id, node in self.nodes.items()
+            if node_id in selected
+        )
+        if not packages and native_only:
+            # Trusted native nodes execute in the host process and do not need
+            # a workflow virtual environment or UV.  This is essential for a
+            # plain folder_watch -> debug graph on a machine without UV.
+            return True
+
+        all_dependencies = self._collect_node_dependencies(node_ids)
 
         if packages:
             all_dependencies.extend(packages)
@@ -267,15 +299,20 @@ class WorkflowExecutor:
 
         return True
 
-    def _collect_node_dependencies(self) -> List[str]:
-        """收集工作流中所有节点声明的依赖"""
+    def _collect_node_dependencies(
+        self, node_ids: Optional[set[str]] = None
+    ) -> List[str]:
+        """收集选定节点声明的依赖；默认收集整个工作流。"""
         from .node_registry import get_registry
 
         registry = get_registry()
         dependencies = []
         seen_types = set()
 
-        for node in self.nodes.values():
+        selected = set(self.nodes) if node_ids is None else set(node_ids)
+        for node_id, node in self.nodes.items():
+            if node_id not in selected:
+                continue
             node_type_str = (
                 node.node_type.value
                 if hasattr(node.node_type, "value")
@@ -322,21 +359,34 @@ class WorkflowExecutor:
 
         return cleaned
 
-    def _topological_sort(self) -> List[str]:
+    def _topological_sort(self, node_ids: Optional[set[str]] = None) -> List[str]:
         """
-        拓扑排序，确定节点执行顺序
+        拓扑排序，确定节点执行顺序。
 
-        Returns:
-            节点ID列表（执行顺序）
+        ``node_ids`` 用于持久 Trigger 的入口隔离：只对入口节点及其
+        下游子图排序，避免一个目录监视器的事件执行另一条监视分支。
         """
+        selected = set(self.nodes) if node_ids is None else set(node_ids)
+        unknown = selected - set(self.nodes)
+        if unknown:
+            raise MozikitError(
+                ErrorCode.NODE_NOT_FOUND,
+                f"节点不存在: {', '.join(sorted(unknown))}",
+            )
+
         in_degree = defaultdict(int)
-        for node_id in self.nodes:
+        for node_id in selected:
             in_degree[node_id] = 0
 
         for e in self.edges:
-            in_degree[e.to_node] += 1
+            if e.from_node in selected and e.to_node in selected:
+                in_degree[e.to_node] += 1
 
-        queue = [node_id for node_id in self.nodes if in_degree[node_id] == 0]
+        queue = [
+            node_id
+            for node_id in self.nodes
+            if node_id in selected and in_degree[node_id] == 0
+        ]
         result = []
 
         while queue:
@@ -344,15 +394,36 @@ class WorkflowExecutor:
             result.append(node_id)
 
             for e in self.edges:
-                if e.from_node == node_id:
+                if (
+                    e.from_node == node_id
+                    and e.to_node in selected
+                ):
                     in_degree[e.to_node] -= 1
                     if in_degree[e.to_node] == 0:
                         queue.append(e.to_node)
 
-        if len(result) != len(self.nodes):
+        if len(result) != len(selected):
             raise MozikitError(ErrorCode.WORKFLOW_CYCLE_DETECTED, "工作流中存在环路，无法执行")
 
         return result
+
+    def get_downstream_node_ids(self, entry_node_id: str) -> set[str]:
+        """Return an entry node and every node reachable from its outputs."""
+        if entry_node_id not in self.nodes:
+            raise MozikitError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {entry_node_id}")
+
+        downstream = {entry_node_id}
+        queue = [entry_node_id]
+        while queue:
+            current = queue.pop(0)
+            for edge in self.edges:
+                if edge.from_node != current or edge.to_node in downstream:
+                    continue
+                if edge.to_node not in self.nodes:
+                    continue
+                downstream.add(edge.to_node)
+                queue.append(edge.to_node)
+        return downstream
 
     def _get_versioned_script_path(self, node: NodeBase) -> str:
         """获取版本感知的脚本路径
@@ -407,19 +478,21 @@ class WorkflowExecutor:
             str(self.uv_manager.get_workflow_dir(self.workflow_name) / "scripts")
         )
 
-    def generate_scripts(self) -> Dict[str, str]:
+    def generate_scripts(self, node_ids: Optional[set[str]] = None) -> Dict[str, str]:
         """
-        为所有节点生成Python脚本（支持版本绑定）
+        为选定节点生成Python脚本（支持版本绑定）。
 
-        Returns:
-            节点ID到脚本路径的映射
+        ``node_ids`` 为空时保持原有的整图行为。
         """
         workflow_dir = self.uv_manager.get_workflow_dir(self.workflow_name)
         scripts_dir = workflow_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
 
+        selected = set(self.nodes) if node_ids is None else set(node_ids)
         script_paths = {}
         for node_id, node in self.nodes.items():
+            if node_id not in selected:
+                continue
             if self._native_executor_id(node):
                 continue
             script_path = self._get_versioned_script_path(node)
@@ -790,6 +863,7 @@ class WorkflowExecutor:
         on_node_progress: Callable[[str, int, str], None] = None,
         on_node_log: Callable[[str, str], None] = None,
         skip_successful_nodes: bool = False,
+        included_node_ids: Optional[set[str]] = None,
     ) -> Dict[str, Any]:
         """
         执行整个工作流
@@ -803,6 +877,7 @@ class WorkflowExecutor:
             on_node_progress: 节点进度回调，参数为 (node_id, percent, message)
             on_node_log: 实时日志回调，参数为 (node_id, line)
             skip_successful_nodes: 是否跳过已缓存的成功节点
+            included_node_ids: 可选的执行子图节点集合
 
         Returns:
             最终输出数据，或结构化运行报告
@@ -817,14 +892,14 @@ class WorkflowExecutor:
         worker_process = None
 
         try:
-            self.execution_order = self._topological_sort()
+            self.execution_order = self._topological_sort(included_node_ids)
             report["execution_order"] = list(self.execution_order)
             logger.info("执行顺序: %s", self.execution_order)
 
             self.context = initial_data or {}
             self.node_outputs = {}
 
-            script_paths = self.generate_scripts()
+            script_paths = self.generate_scripts(included_node_ids)
             logger.info("已生成 %d 个节点脚本", len(script_paths))
 
             logger.info("正在启动工作流执行引擎...")
@@ -1076,7 +1151,7 @@ class WorkflowExecutor:
             workflow_data = json.load(f)
 
         executor = cls(workflow_data["workflow_name"], uv_manager)
-        executor.workflow_id = workflow_data.get("workflow_id", executor.workflow_id)
+        executor.workflow_id = workflow_data.get("workflow_id") or str(Path(file_path).resolve())
         executor.active = workflow_data.get("active", False) is True
         triggers = workflow_data.get("triggers", [])
         executor.triggers = triggers if isinstance(triggers, list) else []

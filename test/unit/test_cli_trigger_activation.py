@@ -39,6 +39,35 @@ def test_workflow_activate_and_deactivate(tmp_path, monkeypatch):
     assert json.loads(workflow_path.read_text(encoding="utf-8"))["active"] is False
 
 
+def test_workflow_activate_rolls_back_when_runtime_start_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("MOZIKIT_WORKSPACE", str(tmp_path))
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "workflow_name": "event-workflow",
+                "active": False,
+                "triggers": [
+                    {"trigger_id": "ticker", "trigger_type": "test", "config": {}}
+                ],
+                "nodes": [],
+                "edges": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch(
+        "src.core.runtime_client.RuntimeClient.ensure_running",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = CliRunner().invoke(app, ["workflow", "activate", str(workflow_path)])
+
+    assert result.exit_code == 1
+    assert "已回滚工作流激活状态" in result.output
+    assert json.loads(workflow_path.read_text(encoding="utf-8"))["active"] is False
+
+
 def test_workflow_activation_requires_trigger(tmp_path, monkeypatch):
     monkeypatch.setenv("MOZIKIT_WORKSPACE", str(tmp_path))
     workflow_path = tmp_path / "workflow.json"

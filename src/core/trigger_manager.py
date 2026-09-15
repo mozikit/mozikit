@@ -32,6 +32,9 @@ class TriggerDefinition:
     trigger_type: str
     config: dict
     fingerprint: str
+    # Only implicit directory-monitor sources set this.  Explicit Triggers
+    # retain the historical full-workflow execution behaviour.
+    entry_node_id: Optional[str] = None
 
 
 @dataclass
@@ -39,6 +42,8 @@ class _ActualTrigger:
     definition: TriggerDefinition
     instance: TriggerBase
     run_controller: "_RunController"
+    last_event: Optional[dict] = None
+    event_count: int = 0
 
 
 class _RunController:
@@ -185,6 +190,12 @@ class TriggerManager:
                         else "stopped",
                         "workflow_id": actual.definition.workflow_id,
                         "trigger_type": actual.definition.trigger_type,
+                        "trigger_id": actual.definition.trigger_id,
+                        "entry_node_id": actual.definition.entry_node_id,
+                        "enabled": True,
+                        "config": actual.definition.config,
+                        "last_event": dict(actual.last_event) if actual.last_event else None,
+                        "event_count": actual.event_count,
                     }
                     for key, actual in self._actual.items()
                 },
@@ -210,23 +221,33 @@ class TriggerManager:
                 logger.warning("Ignoring invalid workflow during trigger reconciliation: %s", path)
 
     def _load_desired(self) -> dict[str, TriggerDefinition]:
+        """Read explicit Triggers and implicit directory-monitor node sources.
+
+        A directory monitor node is still a regular graph node.  Its long-lived
+        watchdog observer is represented here as an implicit ``folder_watch``
+        Trigger, keyed by the node ID.  When an event arrives the normal
+        workflow executor loads the graph, executes the monitor node first,
+        and therefore routes the event through the persisted graph edges.
+        """
+        from .builtin_node_executors import DIRECTORY_WATCH_NODE_TYPES
+
         desired = {}
         for path, document in self._workflow_documents() or []:
             if document.get("active") is not True:
                 continue
             workflow_id = document.get("workflow_id") or str(path.resolve())
             workflow_name = document.get("workflow_name") or path.parent.name
-            triggers = document.get("triggers", [])
-            if not isinstance(triggers, list):
-                continue
-            for index, item in enumerate(triggers):
-                if not isinstance(item, dict) or item.get("enabled", True) is not True:
-                    continue
-                trigger_id = item.get("trigger_id") or f"trigger-{index + 1}"
-                trigger_type = item.get("trigger_type")
-                config = item.get("config", {})
+
+            def add_definition(
+                trigger_id: str,
+                trigger_type: str,
+                config: dict,
+                entry_node_id: Optional[str] = None,
+            ) -> None:
+                if not isinstance(trigger_id, str) or not trigger_id:
+                    return
                 if not isinstance(trigger_type, str) or not isinstance(config, dict):
-                    continue
+                    return
                 key = f"{workflow_id}/{trigger_id}"
                 fingerprint = hashlib.sha256(
                     json.dumps(
@@ -236,9 +257,54 @@ class TriggerManager:
                     ).encode("utf-8")
                 ).hexdigest()
                 desired[key] = TriggerDefinition(
-                    key, workflow_id, workflow_name, str(path), trigger_id,
-                    trigger_type, config, fingerprint
+                    key,
+                    workflow_id,
+                    workflow_name,
+                    str(path),
+                    trigger_id,
+                    trigger_type,
+                    config,
+                    fingerprint,
+                    entry_node_id,
                 )
+
+            # Explicit Trigger records retain their existing behaviour.
+            triggers = document.get("triggers", [])
+            if isinstance(triggers, list):
+                for index, item in enumerate(triggers):
+                    if not isinstance(item, dict) or item.get("enabled", True) is not True:
+                        continue
+                    trigger_id = item.get("trigger_id") or f"trigger-{index + 1}"
+                    add_definition(
+                        trigger_id,
+                        item.get("trigger_type"),
+                        item.get("config", {}),
+                    )
+
+            # A dragged folder-watch node becomes an implicit source.  An
+            # explicit Trigger with the same ID wins to keep old workflows
+            # deterministic and avoid starting two observers accidentally.
+            nodes = document.get("nodes", [])
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if not isinstance(node, dict):
+                        continue
+                    if node.get("node_type") not in DIRECTORY_WATCH_NODE_TYPES:
+                        continue
+                    config = node.get("config", {})
+                    if not isinstance(config, dict) or config.get("enabled", True) is not True:
+                        continue
+                    node_id = node.get("node_id")
+                    key = f"{workflow_id}/{node_id}"
+                    if key in desired:
+                        continue
+                    add_definition(
+                        node_id,
+                        "folder_watch",
+                        config,
+                        entry_node_id=node_id,
+                    )
+
         return desired
 
     def _start_trigger(self, definition: TriggerDefinition) -> None:
@@ -294,6 +360,9 @@ class TriggerManager:
             actual = self._actual.get(definition.key)
         if actual is None:
             return
+        with self._lock:
+            actual.last_event = dict(payload)
+            actual.event_count += 1
         if not actual.run_controller.submit(dict(payload)):
             logger.warning("Trigger run queue full; dropping event: %s", definition.key)
 
@@ -304,6 +373,7 @@ class TriggerManager:
                 trigger_type="trigger",
                 initial_data=payload,
                 workflow_name=definition.workflow_name,
+                entry_node_id=definition.entry_node_id,
             )
         except Exception:
             logger.exception("Trigger workflow run failed: %s", definition.key)

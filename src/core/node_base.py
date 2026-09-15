@@ -29,6 +29,8 @@ class NodeType(Enum):
     TEXT_TEMPLATE_RENDER = "text_template_render"  # 文本模板渲染
     CLIPBOARD_SEND = "clipboard_send"  # 剪贴板发送
     IM_CONTROL = "im_control"  # IM软件控制
+    FOLDER_WATCH = "folder_watch"  # 目录监视
+    DEBUG = "debug"  # 调试输出
 
 
 class NodeBase(ABC):

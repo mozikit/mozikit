@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QLabel,
                                QLineEdit, QComboBox, QTextEdit, QPushButton,
                                QScrollArea, QGroupBox, QHBoxLayout, QApplication,
                                QMessageBox, QFileDialog, QCheckBox, QSpinBox,
-                               QDoubleSpinBox, QCompleter)
+                               QDoubleSpinBox, QCompleter, QListWidget,
+                               QListWidgetItem)
 from PySide6.QtCore import Qt, Signal, QTimer, QThread
 from PySide6.QtGui import QFont
 
@@ -23,6 +24,29 @@ from src.dialogs.source_code_dialog import SourceCodeDialog
 from src.views.rich_text_edit import RichTextEditWidget
 
 logger = get_logger("node_properties")
+
+
+class _PathEditor(QWidget):
+    """Schema editor for a directory/path with a native picker button."""
+
+    def __init__(self, value: str = "", parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.line_edit = QLineEdit(self)
+        self.line_edit.setText(value)
+        layout.addWidget(self.line_edit)
+        browse = QPushButton("选择", self)
+        browse.clicked.connect(self._browse)
+        layout.addWidget(browse)
+
+    def _browse(self):
+        selected = QFileDialog.getExistingDirectory(self, "选择监听目录", self.value())
+        if selected:
+            self.line_edit.setText(selected)
+
+    def value(self) -> str:
+        return self.line_edit.text()
 
 
 class VarRefComboBox(QComboBox):
@@ -105,12 +129,18 @@ class NodePropertiesWidget(QWidget):
 
     # 信号：属性已更新
     properties_updated = Signal(str, dict)  # node_id, config
+    trigger_properties_updated = Signal(str, dict, bool)  # trigger_id, config, enabled
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_node_id = None
         self.current_node_type = None
         self.current_config = {}
+        self.current_object_kind = None
+        self.current_schema = {}
+        self.current_trigger_enabled = True
+        self.current_trigger_runtime_status = {}
+        self.trigger_runtime_labels = {}
         self._current_node_type_for_source = None
         self._current_node_source_is_playwright = False
         self._pending_load = None  # 待加载的节点数据
@@ -191,6 +221,7 @@ class NodePropertiesWidget(QWidget):
     def clear_properties(self):
         """清空属性面板"""
         self._clear_content_immediately()
+        self._pending_load = None
         
         # 显示空提示 - 紧凑版
         self.empty_label = QLabel("请选择一个节点")
@@ -202,6 +233,11 @@ class NodePropertiesWidget(QWidget):
         self.current_node_id = None
         self.current_node_type = None
         self.current_config = {}
+        self.current_object_kind = None
+        self.current_schema = {}
+        self.current_trigger_enabled = True
+        self.current_trigger_runtime_status = {}
+        self.trigger_runtime_labels = {}
         self._current_node_type_for_source = None
         self._current_node_source_is_playwright = False
         self.config_widgets = {}
@@ -212,9 +248,24 @@ class NodePropertiesWidget(QWidget):
         self._load_timer.stop()
         
         # 保存待加载的数据
-        self._pending_load = (node_id, node_type, config)
+        self._pending_load = ("node", node_id, node_type, config, None, True)
         
         # 极短延迟（10ms）用于防抖，减少肉眼可察觉的延迟
+        self._load_timer.start(10)
+
+    def load_trigger_properties(
+        self,
+        trigger_id: str,
+        trigger_type: str,
+        config: dict,
+        schema: dict,
+        enabled: bool = True,
+    ):
+        """Load a Trigger using the shared schema-driven editor."""
+        self._load_timer.stop()
+        self._pending_load = (
+            "trigger", trigger_id, trigger_type, config, schema or {}, enabled
+        )
         self._load_timer.start(10)
     
     def _do_load_node_properties(self):
@@ -222,7 +273,7 @@ class NodePropertiesWidget(QWidget):
         if not self._pending_load:
             return
         
-        node_id, node_type, config = self._pending_load
+        object_kind, node_id, node_type, config, schema, enabled = self._pending_load
         self._pending_load = None
         
         # 强制清除所有现有内容
@@ -231,9 +282,18 @@ class NodePropertiesWidget(QWidget):
         self.current_node_id = node_id
         self.current_node_type = node_type
         self.current_config = dict(config or {})
+        self.current_object_kind = object_kind
+        self.current_schema = dict(schema or {})
+        self.current_trigger_enabled = bool(enabled)
+        self.current_trigger_runtime_status = {}
+        self.trigger_runtime_labels = {}
 
         # 清空配置控件字典
         self.config_widgets = {}
+
+        if object_kind == "trigger":
+            self._build_trigger_properties(node_id, node_type, config, schema, enabled)
+            return
         
         # 节点信息组
         info_group = QGroupBox("节点信息")
@@ -333,6 +393,74 @@ class NodePropertiesWidget(QWidget):
             self._create_source_code_section(node_type_val, node_def)
         
         self.content_layout.addStretch()
+
+    def _build_trigger_properties(
+        self, trigger_id: str, trigger_type: str, config: dict, schema: dict, enabled: bool
+    ):
+        """Build Trigger metadata and configuration controls."""
+        info_group = QGroupBox("Trigger 信息")
+        info_layout = QFormLayout()
+        id_label = QLabel(str(trigger_id))
+        id_label.setStyleSheet(f"color: {ThemeManager.COLORS['text_secondary']};")
+        info_layout.addRow("Trigger ID:", id_label)
+        type_label = QLabel(str(trigger_type))
+        type_label.setStyleSheet(f"color: {ThemeManager.COLORS['text_secondary']};")
+        info_layout.addRow("Trigger Type:", type_label)
+        self.enabled_widget = QCheckBox()
+        self.enabled_widget.setChecked(bool(enabled))
+        info_layout.addRow("Enabled:", self.enabled_widget)
+        info_group.setLayout(info_layout)
+        self.content_layout.addWidget(info_group)
+
+        runtime_group = QGroupBox("Runtime 状态")
+        runtime_layout = QFormLayout()
+        self.trigger_runtime_labels = {
+            "status": QLabel("未知"),
+            "event": QLabel("尚未收到事件"),
+        }
+        for label in self.trigger_runtime_labels.values():
+            label.setWordWrap(True)
+            label.setStyleSheet(f"color: {ThemeManager.COLORS['text_secondary']};")
+        runtime_layout.addRow("状态:", self.trigger_runtime_labels["status"])
+        runtime_layout.addRow("最近事件:", self.trigger_runtime_labels["event"])
+        runtime_group.setLayout(runtime_layout)
+        self.content_layout.addWidget(runtime_group)
+        self.set_trigger_runtime_status(self.current_trigger_runtime_status)
+
+        config_group = QGroupBox("Trigger 配置")
+        config_layout = QFormLayout()
+        self._create_dynamic_schema_form(config_layout, schema or {}, config or {})
+        config_group.setLayout(config_layout)
+        self.content_layout.addWidget(config_group)
+
+        apply_btn = QPushButton("应用配置")
+        apply_btn.clicked.connect(self._apply_changes)
+        self.content_layout.addWidget(apply_btn)
+        self.content_layout.addStretch()
+
+    def set_trigger_runtime_status(self, status: dict | None):
+        """Refresh daemon-owned status shown by the selected Trigger editor."""
+        self.current_trigger_runtime_status = dict(status or {})
+        labels = getattr(self, "trigger_runtime_labels", {})
+        if not labels:
+            return
+        runtime_status = self.current_trigger_runtime_status.get("status") or "未知"
+        labels["status"].setText(str(runtime_status))
+        event = self.current_trigger_runtime_status.get("last_event") or {}
+        if not event:
+            labels["event"].setText("尚未收到事件")
+            return
+        event_type = event.get("event_type", "unknown")
+        if event_type == "moved":
+            source = event.get("src_path", "-")
+            destination = event.get("dest_path", "-")
+            text = f"moved\n{source}\n→ {destination}"
+        else:
+            text = f"{event_type}: {event.get('path', '-')}"
+        count = self.current_trigger_runtime_status.get("event_count")
+        if count is not None:
+            text += f"\n累计事件: {count}"
+        labels["event"].setText(text)
     
     def _create_examples_section(self, examples: list):
         """创建使用示例区域"""
@@ -584,6 +712,8 @@ class NodePropertiesWidget(QWidget):
 
             if is_var_ref:
                 widget = self._create_var_ref_widget("" if default_value is None else str(default_value))
+            elif field_type == "path":
+                widget = _PathEditor("" if default_value is None else str(default_value), self)
             elif field_type == "richtext":
                 widget = RichTextEditWidget()
                 widget.setMaximumHeight(220)
@@ -592,12 +722,29 @@ class NodePropertiesWidget(QWidget):
                 widget = QTextEdit()
                 widget.setMaximumHeight(100)
                 widget.setPlainText("" if default_value is None else str(default_value))
+            elif field_type == "string_list":
+                widget = QTextEdit()
+                widget.setMaximumHeight(90)
+                values = default_value if isinstance(default_value, list) else []
+                widget.setPlainText("\n".join(str(value) for value in values))
             elif field_type == "enum":
                 widget = QComboBox()
                 options = field_schema.get("options", [])
                 widget.addItems([str(option) for option in options])
                 if default_value is not None:
                     widget.setCurrentText(str(default_value))
+            elif field_type == "multi_enum":
+                widget = QListWidget()
+                widget.setMaximumHeight(100)
+                selected = set(default_value if isinstance(default_value, list) else [])
+                for option in field_schema.get("options", []):
+                    item = QListWidgetItem(str(option), widget)
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(
+                        Qt.CheckState.Checked
+                        if option in selected
+                        else Qt.CheckState.Unchecked
+                    )
             elif field_type == "bool":
                 widget = QCheckBox()
                 if isinstance(default_value, str):
@@ -618,7 +765,10 @@ class NodePropertiesWidget(QWidget):
                     widget.setPlainText(json.dumps(default_value, ensure_ascii=False, indent=2))
             elif field_type == "int":
                 widget = QSpinBox()
-                widget.setRange(-999999999, 999999999)
+                widget.setRange(
+                    int(field_schema.get("minimum", -999999999)),
+                    int(field_schema.get("maximum", 999999999)),
+                )
                 widget.setValue(int(default_value or 0))
             elif field_type == "float":
                 widget = QDoubleSpinBox()
@@ -647,12 +797,20 @@ class NodePropertiesWidget(QWidget):
         for key, widget in self.config_widgets.items():
             if isinstance(widget, VarRefComboBox):
                 config[key] = widget.get_var_name()
+            elif isinstance(widget, _PathEditor):
+                config[key] = widget.value()
             elif isinstance(widget, QLineEdit):
                 config[key] = widget.text()
             elif isinstance(widget, QTextEdit):
                 field_type = self._get_field_type_for_widget(key)
                 text_value = widget.toPlainText()
-                if field_type == "json" or key == "actions":
+                if field_type == "string_list":
+                    config[key] = [
+                        line.strip()
+                        for line in text_value.splitlines()
+                        if line.strip()
+                    ]
+                elif field_type == "json" or key == "actions":
                     import json
 
                     config[key] = json.loads(text_value) if text_value.strip() else {}
@@ -662,6 +820,12 @@ class NodePropertiesWidget(QWidget):
                 config[key] = widget.toHtml()
             elif isinstance(widget, QComboBox):
                 config[key] = widget.currentText()
+            elif isinstance(widget, QListWidget):
+                config[key] = [
+                    widget.item(index).text()
+                    for index in range(widget.count())
+                    if widget.item(index).checkState() == Qt.CheckState.Checked
+                ]
             elif isinstance(widget, QCheckBox):
                 config[key] = widget.isChecked()
             elif isinstance(widget, QSpinBox):
@@ -731,12 +895,23 @@ class NodePropertiesWidget(QWidget):
 
         # 统一走 properties_updated，避免“应用配置”和“保存前同步”出现两套写回逻辑。
         config = self._collect_current_config()
-        self.properties_updated.emit(self.current_node_id, config)
-        logger.info("节点 %s 配置已更新: %s", self.current_node_id, config)
+        if self.current_object_kind == "trigger":
+            enabled = self.enabled_widget.isChecked()
+            self.trigger_properties_updated.emit(self.current_node_id, config, enabled)
+            logger.info("Trigger %s 配置已更新: %s", self.current_node_id, config)
+        else:
+            self.properties_updated.emit(self.current_node_id, config)
+            logger.info("节点 %s 配置已更新: %s", self.current_node_id, config)
         return True
     
     def _get_field_type_for_widget(self, key: str) -> str:
         """获取当前字段类型"""
+        if self.current_object_kind == "trigger":
+            field_schema = self.current_schema.get(key, {})
+            if isinstance(field_schema, dict):
+                return field_schema.get("type", "string")
+            return "string"
+
         if isinstance(self.current_config.get("param_schema"), dict):
             field_schema = self.current_config["param_schema"].get(key, {})
             if isinstance(field_schema, dict):

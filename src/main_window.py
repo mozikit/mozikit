@@ -1,7 +1,8 @@
+import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QTimer, QSize, Qt
 from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -23,6 +24,7 @@ from src.core import __version__
 from src.core.config_manager import ConfigManager
 from src.core.log_manager import get_logger
 from src.core.theme_manager import ThemeManager
+from src.core.runtime_client import RuntimeClient
 from src.dialogs.settings_dialog import SettingsDialog
 from src.views.execution_results_widget import ExecutionResultsWidget
 from src.views.node_browser import NodeBrowserWidget
@@ -42,8 +44,13 @@ class MainWindow(QMainWindow):
         self.workflow_count = 0
 
         self.config_manager = ConfigManager()
+        self._runtime_history_ids = {}
 
         self._setup_layout()
+        self._runtime_poll_timer = QTimer(self)
+        self._runtime_poll_timer.setInterval(1000)
+        self._runtime_poll_timer.timeout.connect(self._poll_trigger_runtime)
+        self._runtime_poll_timer.start()
         self._restore_window_state()
         self._setup_system_tray()
 
@@ -166,6 +173,9 @@ class MainWindow(QMainWindow):
         self.node_properties.properties_updated.connect(
             self._on_node_properties_updated
         )
+        self.node_properties.trigger_properties_updated.connect(
+            self._on_trigger_properties_updated
+        )
         # 信号连接：从节点浏览器打开工作流
         self.node_browser.open_workflow_requested.connect(
             self._on_open_workflow_from_browser
@@ -256,6 +266,17 @@ class MainWindow(QMainWindow):
         if isinstance(current_widget, WorkflowTabWidget):
             current_widget.update_node_config(node_id, config)
 
+    def _on_trigger_properties_updated(
+        self, trigger_id: str, config: dict, enabled: bool
+    ):
+        """Write Trigger editor changes into the current Workflow Model."""
+        current_widget = self.tabs.currentWidget()
+        if isinstance(current_widget, WorkflowTabWidget):
+            try:
+                current_widget.update_trigger_config(trigger_id, config, enabled)
+            except (KeyError, ValueError) as exc:
+                QMessageBox.warning(self, "Trigger 配置无效", str(exc))
+
     def _on_open_workflow_from_browser(
         self, workflow_name: str, workflow_path: str, node_type: str
     ):
@@ -312,6 +333,63 @@ class MainWindow(QMainWindow):
                     background: transparent;
                 }
             """)
+
+    def _poll_trigger_runtime(self):
+        """Refresh daemon-owned Trigger status and latest background report."""
+        current = self.tabs.currentWidget()
+        if not isinstance(current, WorkflowTabWidget) or not current.workflow_path:
+            return
+        try:
+            client = RuntimeClient()
+            if not client.is_running():
+                return
+            runtime = client.trigger_status()
+            actual = runtime.get("actual", {})
+            errors = runtime.get("errors", {})
+            workflow_id = str(current.executor.workflow_id)
+            for trigger_id in current.trigger_items:
+                key = f"{workflow_id}/{trigger_id}"
+                observed = actual.get(key)
+                if observed is None:
+                    error = errors.get(key)
+                    observed = {"status": "error", "error": error} if error else {"status": "stopped"}
+                current.update_trigger_runtime_status(trigger_id, observed)
+
+            # A dragged directory-monitor node is an implicit Trigger keyed by
+            # its node ID.  Project the same daemon status onto that node.
+            for node_id, node_item in current.nodes.items():
+                if not getattr(node_item, "is_directory_monitor_node", False):
+                    continue
+                key = f"{workflow_id}/{node_id}"
+                observed = actual.get(key)
+                if observed is None:
+                    error = errors.get(key)
+                    observed = {"status": "error", "error": error} if error else {"status": "stopped"}
+                current.update_node_runtime_status(node_id, observed)
+
+            # TriggerManager persists the full report under artifact_dir. Load it
+            # when a new daemon-owned execution appears so the bottom panel is
+            # useful for Trigger runs too.
+            history = ConfigManager().get_execution_history(current.workflow_name, limit=20)
+            trigger_record = next(
+                (record for record in history if record.get("trigger_type") == "trigger"),
+                None,
+            )
+            if not trigger_record:
+                return
+            record_id = trigger_record.get("id")
+            if self._runtime_history_ids.get(current.workflow_name) == record_id:
+                return
+            self._runtime_history_ids[current.workflow_name] = record_id
+            report_path = Path(trigger_record.get("artifact_dir") or "") / "run.json"
+            report = trigger_record
+            if report_path.is_file():
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            current.apply_external_run_report(report)
+            self.execution_results_dock.setStyleSheet(ThemeManager.get_dock_widget_style())
+            self.execution_results_dock.show()
+        except Exception as exc:
+            logger.debug("刷新 Trigger Runtime 状态失败: %s", exc)
 
     def add_workflow_tab(self):
         """Add a new workflow tab"""

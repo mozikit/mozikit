@@ -72,6 +72,7 @@ class WorkflowRunDispatcher:
         skip_successful_nodes: bool = False,
         uv_manager=None,
         workflow_name: Optional[str] = None,
+        entry_node_id: Optional[str] = None,
     ) -> dict:
         """Load and synchronously execute one workflow, returning its report."""
         return self.dispatch(
@@ -83,6 +84,7 @@ class WorkflowRunDispatcher:
             skip_successful_nodes=skip_successful_nodes,
             uv_manager=uv_manager,
             workflow_name=workflow_name,
+            entry_node_id=entry_node_id,
         ).report
 
     def dispatch(
@@ -96,6 +98,7 @@ class WorkflowRunDispatcher:
         skip_successful_nodes: bool = False,
         uv_manager=None,
         workflow_name: Optional[str] = None,
+        entry_node_id: Optional[str] = None,
     ) -> WorkflowDispatchResult:
         try:
             executor = self.load_workflow(workflow_path, uv_manager)
@@ -115,6 +118,7 @@ class WorkflowRunDispatcher:
             callbacks=callbacks,
             prepare_environment=prepare_environment,
             skip_successful_nodes=skip_successful_nodes,
+            entry_node_id=entry_node_id,
         )
 
     def dispatch_executor(
@@ -127,12 +131,24 @@ class WorkflowRunDispatcher:
         callbacks: Optional[WorkflowRunCallbacks] = None,
         prepare_environment: bool = True,
         skip_successful_nodes: bool = False,
+        entry_node_id: Optional[str] = None,
     ) -> WorkflowDispatchResult:
         callbacks = callbacks or WorkflowRunCallbacks()
         try:
+            included_node_ids = (
+                executor.get_downstream_node_ids(entry_node_id)
+                if entry_node_id
+                else None
+            )
             if prepare_environment:
                 self._notify(callbacks.on_environment_preparing)
-                if not executor.prepare_environment():
+                if included_node_ids is None:
+                    environment_ready = executor.prepare_environment()
+                else:
+                    environment_ready = executor.prepare_environment(
+                        node_ids=included_node_ids
+                    )
+                if not environment_ready:
                     self._notify(
                         callbacks.on_environment_ready, False, ENVIRONMENT_ERROR
                     )
@@ -140,16 +156,19 @@ class WorkflowRunDispatcher:
                 self._notify(callbacks.on_environment_ready, True, "")
 
             self.runtime_client.ensure_running()
-            report = executor.execute(
-                initial_data=initial_data,
-                return_report=True,
-                trigger_type=trigger_type,
-                on_node_start=callbacks.on_node_start,
-                on_node_complete=callbacks.on_node_complete,
-                on_node_progress=callbacks.on_node_progress,
-                on_node_log=callbacks.on_node_log,
-                skip_successful_nodes=skip_successful_nodes,
-            )
+            execute_kwargs = {
+                "initial_data": initial_data,
+                "return_report": True,
+                "trigger_type": trigger_type,
+                "on_node_start": callbacks.on_node_start,
+                "on_node_complete": callbacks.on_node_complete,
+                "on_node_progress": callbacks.on_node_progress,
+                "on_node_log": callbacks.on_node_log,
+                "skip_successful_nodes": skip_successful_nodes,
+            }
+            if included_node_ids is not None:
+                execute_kwargs["included_node_ids"] = included_node_ids
+            report = executor.execute(**execute_kwargs)
         except Exception as exc:
             self._persist_startup_failure(
                 workflow_path,
@@ -164,6 +183,16 @@ class WorkflowRunDispatcher:
             workflow_path=workflow_path,
             trigger_type=trigger_type,
         )
+        if not isinstance(record, dict):
+            record = {
+                "id": str(report.get("run_id") or uuid.uuid4())[:8]
+                if isinstance(report, dict)
+                else str(uuid.uuid4())[:8],
+                "workflow_name": executor.workflow_name,
+                "workflow_path": workflow_path,
+                "status": "success" if isinstance(report, dict) and report.get("success") else "failed",
+                "trigger_type": trigger_type,
+            }
         self.config_manager.add_execution_record(record)
         return WorkflowDispatchResult(report=report, record=record)
 

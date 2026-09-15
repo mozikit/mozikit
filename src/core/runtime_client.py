@@ -29,13 +29,32 @@ class RuntimeClient:
         if plugin_root.is_dir() and next(plugin_root.rglob("runtime.json"), None) is not None:
             return True
         from src.core import resolve_workspace
+        from .builtin_node_executors import DIRECTORY_WATCH_NODE_TYPES
 
         workspace = resolve_workspace()
         if workspace.is_dir():
             for path in workspace.rglob("workflow.json"):
                 try:
                     document = json.loads(path.read_text(encoding="utf-8"))
-                    if document.get("active") is True and document.get("triggers"):
+                    if document.get("active") is not True:
+                        continue
+                    triggers = document.get("triggers", [])
+                    if isinstance(triggers, list) and any(
+                        isinstance(trigger, dict)
+                        and trigger.get("enabled", True) is True
+                        for trigger in triggers
+                    ):
+                        return True
+                    nodes = document.get("nodes", [])
+                    if isinstance(nodes, list) and any(
+                        isinstance(node, dict)
+                        and node.get("node_type") in DIRECTORY_WATCH_NODE_TYPES
+                        and isinstance(node.get("config") or {}, dict)
+                        and (node.get("config") or {}).get("enabled", True) is True
+                        and isinstance((node.get("config") or {}).get("path"), str)
+                        and bool((node.get("config") or {}).get("path", "").strip())
+                        for node in nodes
+                    ):
                         return True
                 except (OSError, json.JSONDecodeError, AttributeError):
                     continue
