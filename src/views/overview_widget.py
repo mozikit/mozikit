@@ -596,14 +596,18 @@ class OverviewWidget(QWidget):
         self._load_execution_history()
 
         # 自动刷新定时器
-        self._refresh_timer = QTimer()
+        self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._refresh_data)
         self._refresh_timer.start(5000)
 
     def _refresh_data(self):
         """刷新数据"""
-        self._load_scheduled_tasks()
-        self._load_execution_history()
+        if not self.isVisible():
+            return
+        if self.scheduled_table.isVisible():
+            self._load_scheduled_tasks()
+        if self.history_table.isVisible():
+            self._load_execution_history()
 
     def _setup_ui(self):
         """设置UI - 优化版"""
@@ -685,6 +689,7 @@ class OverviewWidget(QWidget):
         tab_widget.addTab(scheduled_tab, "⏰ 定时任务")
         tab_widget.addTab(history_tab, "📜 运行历史")
         tab_widget.addTab(credentials_tab, "🔑 凭证管理")
+        tab_widget.currentChanged.connect(self._refresh_data)
 
         main_layout.addWidget(tab_widget)
 
@@ -786,6 +791,12 @@ class OverviewWidget(QWidget):
         else:
             self.list_layout.addWidget(self.empty_label)
             self.empty_label.show()
+
+        self._filter_workflows(self.search_input.text())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_data()
 
     def _filter_workflows(self, search_text: str):
         """根据搜索文本过滤工作流列表"""

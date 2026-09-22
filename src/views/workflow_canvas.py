@@ -175,9 +175,7 @@ class WorkflowCanvas(QGraphicsView):
         self.setRenderHint(QPainter.TextAntialiasing)
         # 仅在静态场景使用 SmoothPixmapTransform，动态时关闭以提升性能
         self.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
-        self.setOptimizationFlags(
-            QGraphicsView.DontSavePainterState | QGraphicsView.DontAdjustForAntialiasing
-        )
+        # 各图元会修改 painter 状态；保留 Qt 的状态隔离与抗锯齿边界补偿。
         # 启用缓存模式，减少重复绘制
         self.setCacheMode(QGraphicsView.CacheBackground)
 
@@ -215,25 +213,19 @@ class WorkflowCanvas(QGraphicsView):
         self._grid_color = QColor(ThemeManager.COLORS["border"])
         self._grid_color.setAlpha(35)
 
-        # 动画定时器 - 使用自适应帧率，默认30fps降低CPU占用
-        self._animation_timer = QTimer()
-        self._animation_timer.timeout.connect(self._update_animations)
-        self._animation_timer.start(33)  # ~30fps，平衡流畅度与性能
-        self._active_animation_items = set()  # 追踪需要动画的项
-
         # 缩放限制
         self._min_zoom = 0.2
         self._max_zoom = 3.0
         self._current_zoom = 1.0
 
         # 缩放保存定时器（防抖）- 保存缩放配置
-        self._zoom_save_timer = QTimer()
+        self._zoom_save_timer = QTimer(self)
         self._zoom_save_timer.setSingleShot(True)
         self._zoom_save_timer.timeout.connect(self._save_zoom_to_config)
         self._config_manager = ConfigManager()
 
         # 缩放自动保存防抖定时器 - 避免连续缩放时频繁保存工作流
-        self._zoom_auto_save_timer = QTimer()
+        self._zoom_auto_save_timer = QTimer(self)
         self._zoom_auto_save_timer.setSingleShot(True)
         self._zoom_auto_save_timer.timeout.connect(self._emit_zoom_changed)
         self._zoom_auto_save_pending = False
@@ -317,21 +309,20 @@ class WorkflowCanvas(QGraphicsView):
         painter.drawLine(QPointF(0, rect.top()), QPointF(0, rect.bottom()))
 
     def wheelEvent(self, event):
-        """滚轮缩放 - 优化版"""
-        zoom_in_factor = 1.15
-        zoom_out_factor = 1 / zoom_in_factor
-
-        # 计算新的缩放比例
-        if event.angleDelta().y() > 0:
-            new_zoom = self._current_zoom * zoom_in_factor
-            if new_zoom <= self._max_zoom:
-                self._current_zoom = new_zoom
-                self.scale(zoom_in_factor, zoom_in_factor)
-        else:
-            new_zoom = self._current_zoom * zoom_out_factor
-            if new_zoom >= self._min_zoom:
-                self._current_zoom = new_zoom
-                self.scale(zoom_out_factor, zoom_out_factor)
+        """按滚轮增量缩放，兼容触控板的小步长与纯像素事件。"""
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        event.accept()
+        if not delta:
+            return
+        new_zoom = max(
+            self._min_zoom,
+            min(self._max_zoom, self._current_zoom * 1.15 ** (delta / 120)),
+        )
+        if new_zoom == self._current_zoom:
+            return
+        factor = new_zoom / self._current_zoom
+        self._current_zoom = new_zoom
+        self.scale(factor, factor)
 
         # 缩放变化时触发视口更新
         self.viewport().update()
@@ -784,35 +775,6 @@ class WorkflowCanvas(QGraphicsView):
         scroll_y = canvas_state.get("scroll_y", 0)
         self.horizontalScrollBar().setValue(scroll_x)
         self.verticalScrollBar().setValue(scroll_y)
-
-    def _update_animations(self):
-        """更新动画帧 - 仅更新活跃项，避免遍历全部"""
-        # 使用活跃项集合，避免每次遍历整个场景
-        active_items = self._active_animation_items
-        if not active_items:
-            # 回退：仅查找可见区域内的连接线
-            visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
-            for item in self._scene.items(visible_rect):
-                if hasattr(item, "_animation_offset") and getattr(
-                    item, "_is_active", False
-                ):
-                    active_items.add(item)
-
-        for item in list(active_items):
-            try:
-                if item.scene() is None:
-                    active_items.discard(item)
-                    continue
-                item._animation_offset = (
-                    getattr(item, "_animation_offset", 0) + 2
-                ) % 100
-                if getattr(item, "_is_active", False):
-                    # 使用轻量更新，仅重绘该项的边界矩形
-                    item.update()
-                else:
-                    active_items.discard(item)
-            except RuntimeError:
-                active_items.discard(item)
 
     def set_grid_enabled(self, enabled: bool):
         """设置网格显示"""

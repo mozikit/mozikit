@@ -52,7 +52,7 @@ class DraggableListWidget(QListWidget):
     def startDrag(self, supportedActions):
         """开始拖拽"""
         item = self.currentItem()
-        if not item:
+        if not item or item.isHidden():
             return
 
         node_data = item.data(Qt.UserRole)
@@ -451,12 +451,13 @@ class NodeBrowserWidget(QWidget):
         # 从节点注册表加载节点
         self._registry = get_registry()
         self.nodes_data = self._registry.get_all_nodes()
-        self._current_source_filter = None
         self._populate_list(self.nodes_data)
+        self._on_source_filter_changed(self.source_filter.currentIndex())
 
     def _populate_list(self, nodes):
         """填充节点列表"""
         self.node_list.clear()
+        self._filter_entries = []
 
         for node_data in nodes:
             item = QListWidgetItem()
@@ -490,6 +491,13 @@ class NodeBrowserWidget(QWidget):
 
             # 设置数据
             item.setData(Qt.UserRole, node_data)
+            searchable = " ".join(
+                (node_data["name"], node_data.get("description", ""),
+                 node_data["category"], repo_suffix)
+            ).casefold()
+            self._filter_entries.append(
+                (item, source, searchable)
+            )
 
             # 根据来源设置颜色
             if is_modified:
@@ -608,38 +616,21 @@ class NodeBrowserWidget(QWidget):
 
     def _apply_filters(self):
         """应用筛选条件"""
-        search_text = self.search_input.text().lower()
-
-        filtered = []
-        for node in self.nodes_data:
-            # 来源筛选
-            if self._current_source_filter is not None:
-                if node.get("source") != self._current_source_filter:
-                    continue
-
-            # 搜索筛选
-            if search_text:
-                # 构建与显示一致的仓库后缀，用于支持 @仓库名 搜索
-                repo_suffix = ""
-                if node.get("source") == NodeSource.GITHUB:
-                    repo_url = node.get("repo_url", "")
-                    if repo_url:
-                        parts = repo_url.rstrip("/").split("/")
-                        if len(parts) >= 1:
-                            repo_suffix = f"@{parts[-1]}"
-
-                searchable = (
-                    node["name"].lower()
-                    + node.get("description", "").lower()
-                    + node["category"].lower()
-                    + repo_suffix.lower()
+        search_text = self.search_input.text().casefold().strip()
+        updates_enabled = self.node_list.updatesEnabled()
+        self.node_list.setUpdatesEnabled(False)
+        try:
+            # 缓存在 Python 层，避免逐行将 QVariant 字典转换回 Python。
+            for item, source, searchable in self._filter_entries:
+                matches_source = (
+                    self._current_source_filter is None
+                    or source == self._current_source_filter
                 )
-                if search_text not in searchable:
-                    continue
-
-            filtered.append(node)
-
-        self._populate_list(filtered)
+                hidden = not (matches_source and search_text in searchable)
+                if item.isHidden() != hidden:
+                    item.setHidden(hidden)
+        finally:
+            self.node_list.setUpdatesEnabled(updates_enabled)
 
     def _filter_nodes(self, text):
         """过滤节点"""

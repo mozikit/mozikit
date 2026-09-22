@@ -723,10 +723,10 @@ class NodeGraphicsItem(QGraphicsItem):
             if hasattr(self, "del_btn"):
                 self.del_btn.setVisible(is_selected)
             self.update()
-        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            # 节点位置变化时，通知所有连接的连接线更新路径
-            # 使用 QTimer.singleShot(0) 延迟到位置实际改变后执行
-            QTimer.singleShot(0, self._update_connected_connections)
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            # 位置已生效，同步更新连线，避免拖动时积压回调及删除后的悬空访问。
+            if hasattr(self, "input_ports") and hasattr(self, "output_ports"):
+                self._update_connected_connections()
         return super().itemChange(change, value)
 
     def _update_connected_connections(self):
