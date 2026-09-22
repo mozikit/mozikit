@@ -17,6 +17,21 @@ PLAYWRIGHT_RUNTIME_FIELDS = (
 )
 
 
+def apply_playwright_script(config: dict, source: str, param_schema=None) -> dict:
+    """Validate a script and synchronize its parameters for GUI and CLI."""
+    import ast
+    if source.strip():
+        ast.parse(source)
+    names = extract_playwright_params(source)
+    schema = build_playwright_config_schema(
+        names, config.get("param_schema", {}) if param_schema is None else param_schema
+    )
+    allowed = {"script_source", "param_schema", *names, *PLAYWRIGHT_RUNTIME_FIELDS}
+    merged = {key: value for key, value in config.items() if key in allowed}
+    merged.update(script_source=source, param_schema=schema)
+    return build_playwright_default_config(merged)
+
+
 def extract_playwright_params(script_source: str) -> List[str]:
     """从脚本中提取 {{param_name}} 占位符"""
     seen = []

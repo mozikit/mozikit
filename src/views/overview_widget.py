@@ -1437,22 +1437,16 @@ class OverviewWidget(QWidget):
         if not key or not value:
             ToastWidget.show(self, "请填写键名和值", "warning")
             return
-        from src.core.credential_store import store_credential
-        from src.core._file_utils import atomic_write_json
-
-        encrypted = store_credential(key, value)
-        if encrypted:
-            config = self.config_manager.config
-            if "custom_credentials" not in config:
-                config["custom_credentials"] = {}
-            config["custom_credentials"][key] = encrypted
-            self.config_manager.save_config()
-            self._load_custom_credentials()
-            self.cred_custom_key_input.clear()
-            self.cred_custom_value_input.clear()
-            ToastWidget.show(self, f"凭证 '{key}' 已保存", "success")
-        else:
-            ToastWidget.show(self, "凭证保存失败", "error")
+        from src.core.custom_credentials import set_custom_credential
+        try:
+            set_custom_credential(self.config_manager, key, value)
+        except ValueError as exc:
+            ToastWidget.show(self, str(exc), "error")
+            return
+        self._load_custom_credentials()
+        self.cred_custom_key_input.clear()
+        self.cred_custom_value_input.clear()
+        ToastWidget.show(self, f"凭证 '{key}' 已保存", "success")
 
     def _load_custom_credentials(self):
         """加载自定义凭证列表"""
@@ -1476,13 +1470,12 @@ class OverviewWidget(QWidget):
 
     def _on_delete_custom_credential(self, key):
         """删除自定义凭证"""
-        from src.core.credential_store import delete_credential
-
-        delete_credential(key)
-        config = self.config_manager.config
-        if "custom_credentials" in config and key in config["custom_credentials"]:
-            del config["custom_credentials"][key]
-            self.config_manager.save_config()
+        from src.core.custom_credentials import remove_custom_credential
+        try:
+            remove_custom_credential(self.config_manager, key)
+        except ValueError as exc:
+            ToastWidget.show(self, str(exc), "error")
+            return
         self._load_custom_credentials()
         ToastWidget.show(self, f"凭证 '{key}' 已删除", "info")
 
@@ -1549,72 +1542,31 @@ class OverviewWidget(QWidget):
         """加载运行历史"""
         self.history_table.setRowCount(0)
 
+        # A CLI/daemon run can update the index while this window stays open.
+        from src.core.config_manager import ConfigManager
+        history_manager = ConfigManager(self.config_manager.config_file)
+        for record in history_manager.get_execution_history(limit=50):
+            row = self.history_table.rowCount()
+            self.history_table.insertRow(row)
+            values = [record.get("started_at", ""), record.get("workflow_name", ""),
+                      record.get("status", "unknown"),
+                      f"{record.get('duration_ms', 0) / 1000:.2f}s"]
+            for column, value in enumerate(values):
+                self.history_table.setItem(row, column, QTableWidgetItem(str(value)))
+            button = QPushButton("查看")
+            button.clicked.connect(lambda checked=False, item=record: self._show_history_report(item))
+            self.history_table.setCellWidget(row, 4, button)
+
+    def _show_history_report(self, record):
+        from src.core.execution_history import read_report
         try:
-            history_dir = Path("history")
-            if not history_dir.exists():
-                return
-
-            history_files = sorted(
-                history_dir.glob("*.json"),
-                key=lambda x: x.stat().st_mtime,
-                reverse=True,
-            )[:50]
-
-            for history_file in history_files:
-                try:
-                    with open(history_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-
-                    row = self.history_table.rowCount()
-                    self.history_table.insertRow(row)
-
-                    # 时间
-                    timestamp = data.get("timestamp", "")
-                    time_item = QTableWidgetItem(timestamp)
-                    self.history_table.setItem(row, 0, time_item)
-
-                    # 工作流名称
-                    workflow_name = data.get("workflow_name", "未知")
-                    name_item = QTableWidgetItem(workflow_name)
-                    self.history_table.setItem(row, 1, name_item)
-
-                    # 状态
-                    status = data.get("status", "unknown")
-                    status_map = {
-                        "success": ("✅ 成功", ThemeManager.COLORS["success"]),
-                        "failed": ("❌ 失败", ThemeManager.COLORS["error"]),
-                        "running": ("⏳ 运行中", ThemeManager.COLORS["accent"]),
-                    }
-                    status_text, status_color = status_map.get(
-                        status, ("❓ 未知", ThemeManager.COLORS["text_secondary"])
-                    )
-                    status_item = QTableWidgetItem(status_text)
-                    status_item.setForeground(QColor(status_color))
-                    self.history_table.setItem(row, 2, status_item)
-
-                    # 耗时
-                    duration = data.get("duration", 0)
-                    duration_text = f"{duration:.2f}s" if duration else "--"
-                    duration_item = QTableWidgetItem(duration_text)
-                    self.history_table.setItem(row, 3, duration_item)
-
-                    # 操作
-                    action_widget = QWidget()
-                    action_layout = QHBoxLayout(action_widget)
-                    action_layout.setContentsMargins(4, 4, 4, 4)
-
-                    view_btn = QPushButton("查看")
-                    view_btn.setStyleSheet(ThemeManager.get_button_style("secondary"))
-                    view_btn.setFixedHeight(28)
-                    action_layout.addWidget(view_btn)
-
-                    self.history_table.setCellWidget(row, 4, action_widget)
-
-                except Exception as e:
-                    logger.error("加载历史记录文件失败: %s - %s", history_file, e)
-
-        except Exception as e:
-            logger.error("加载运行历史失败: %s", e)
+            report = read_report(record)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "读取失败", str(exc))
+            return
+        window = self.window()
+        if hasattr(window, "show_execution_report"):
+            window.show_execution_report(report)
 
     def _on_add_scheduled_task_clicked(self):
         """打开新增定时任务对话框"""

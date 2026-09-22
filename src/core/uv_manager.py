@@ -29,7 +29,8 @@ class UVManager:
         
         self.workspace_root = Path(workspace_root)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.custom_uv_path = None
+        from .config_manager import ConfigManager
+        self.custom_uv_path = ConfigManager().config.get("uv_path")
         self.custom_mirror = None
         self._load_mirror_config()
     
@@ -713,7 +714,7 @@ class UVManager:
         # 如果PATH中的不可用，返回第一个找到的
         return uv_paths[0]
     
-    def set_custom_uv_path(self, uv_path: str) -> bool:
+    def set_custom_uv_path(self, uv_path: str, config_manager=None) -> bool:
         """
         设置自定义的uv路径
         
@@ -725,6 +726,10 @@ class UVManager:
         """
         if os.path.isfile(uv_path) and self._verify_uv_executable(uv_path):
             self.custom_uv_path = uv_path
+            from .config_manager import ConfigManager
+            config = config_manager or ConfigManager()
+            config.config["uv_path"] = str(Path(uv_path).resolve())
+            config.save_config_sync()
             return True
         return False
     

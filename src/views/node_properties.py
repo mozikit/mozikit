@@ -1027,27 +1027,11 @@ class NodePropertiesWidget(QWidget):
 
     def _apply_playwright_script_result(self, result: dict):
         """应用 Playwright 脚本编辑结果"""
-        merged_config = dict(self._collect_current_config())
-        merged_config["script_source"] = result.get("script_source", "")
-        merged_config["param_schema"] = result.get("param_schema", {})
-
-        allowed_keys = {
-            "script_source",
-            "param_schema",
-            *result.get("param_names", []),
-            "playwright_headless",
-            "playwright_timeout_seconds",
-            "playwright_download_dir",
-            "playwright_artifacts_dir",
-            "playwright_auto_download",
-            "playwright_browser_channel",
-        }
-        merged_config = {
-            key: value
-            for key, value in merged_config.items()
-            if key in allowed_keys
-        }
-        merged_config = build_playwright_default_config(merged_config)
+        from src.core.playwright_node_utils import apply_playwright_script
+        merged_config = apply_playwright_script(
+            self._collect_current_config(), result.get("script_source", ""),
+            result.get("param_schema", {}),
+        )
         self.current_config = merged_config
         self.properties_updated.emit(self.current_node_id, merged_config)
         self.load_node_properties(

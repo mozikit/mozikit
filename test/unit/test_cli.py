@@ -92,6 +92,12 @@ class TestCLIRunCommand(unittest.TestCase):
 
     def setUp(self):
         self.runner = CliRunner()
+        for target in ("src.core.workflow_run_dispatcher.RuntimeClient",
+                       "src.core.workflow_run_dispatcher.ConfigManager"):
+            patcher = patch(target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
 
     def test_run_no_args_shows_error(self, mock_load):
         result = self.runner.invoke(app, ["run"])
@@ -174,7 +180,7 @@ class TestCLIRunCommand(unittest.TestCase):
                 )
                 self.assertEqual(result.exit_code, 0)
                 _, kwargs = mock_executor.execute.call_args
-                self.assertEqual(kwargs["initial_data"], {"name": "alice", "count": "42"})
+                self.assertEqual(kwargs["initial_data"], {"name": "alice", "count": 42})
 
     def test_run_with_output_file(self, mock_load):
         """指定 --output 保存结果"""

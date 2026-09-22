@@ -132,14 +132,24 @@ class WorkflowRunDispatcher:
         prepare_environment: bool = True,
         skip_successful_nodes: bool = False,
         entry_node_id: Optional[str] = None,
+        target_node_id: Optional[str] = None,
+        handle_interrupt: bool = False,
     ) -> WorkflowDispatchResult:
         callbacks = callbacks or WorkflowRunCallbacks()
         try:
+            if entry_node_id and target_node_id:
+                raise ValueError("不能同时指定入口节点和目标节点")
             included_node_ids = (
                 executor.get_downstream_node_ids(entry_node_id)
                 if entry_node_id
                 else None
             )
+            if target_node_id:
+                from .workflow_editing import upstream_node_ids
+                included_node_ids = upstream_node_ids(
+                    target_node_id, executor.nodes,
+                    [(edge.from_node, edge.to_node) for edge in executor.edges],
+                )
             if prepare_environment:
                 self._notify(callbacks.on_environment_preparing)
                 if included_node_ids is None:
@@ -168,7 +178,9 @@ class WorkflowRunDispatcher:
             }
             if included_node_ids is not None:
                 execute_kwargs["included_node_ids"] = included_node_ids
-            report = executor.execute(**execute_kwargs)
+            from .execution_signals import stop_on_interrupt
+            with stop_on_interrupt(executor, handle_interrupt):
+                report = executor.execute(**execute_kwargs)
         except Exception as exc:
             self._persist_startup_failure(
                 workflow_path,

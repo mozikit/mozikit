@@ -77,6 +77,7 @@ class WorkflowExecutor:
         self.workflow_id = str(uuid.uuid4())
         self.active = False
         self.triggers: List[dict] = []
+        self.canvas_state: dict = {}
         self.uv_manager = uv_manager or UVManager()
         from src.core.config_manager import ConfigManager
 
@@ -1057,6 +1058,10 @@ class WorkflowExecutor:
                         worker_process.kill()
                 logger.info("工作流执行引擎已关闭")
 
+            if self._stop_event.is_set():
+                report["success"] = False
+                report["stopped"] = True
+                report["error"] = "工作流已被用户停止"
             report["finished_at"] = datetime.now().isoformat(timespec="seconds")
             report["duration_ms"] = int(
                 (datetime.now() - report_started_at).total_seconds() * 1000
@@ -1118,6 +1123,8 @@ class WorkflowExecutor:
             "dependencies": self._collect_node_dependencies(),
         }
 
+        if canvas_state is None:
+            canvas_state = self.canvas_state
         if canvas_state:
             workflow_data["canvas_state"] = canvas_state
 
@@ -1155,6 +1162,7 @@ class WorkflowExecutor:
         executor.active = workflow_data.get("active", False) is True
         triggers = workflow_data.get("triggers", [])
         executor.triggers = triggers if isinstance(triggers, list) else []
+        executor.canvas_state = workflow_data.get("canvas_state", {})
 
         for node_data in workflow_data["nodes"]:
             node = NodeBase.from_dict(node_data)

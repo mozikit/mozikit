@@ -484,27 +484,8 @@ class WorkflowCanvas(QGraphicsView):
 
     def _ports_compatible(self, out_port, in_port) -> bool:
         """检查两个端口是否类型兼容"""
-        out_type = out_port.data_type
-        in_type = in_port.data_type
-
-        # any 类型兼容一切
-        if out_type == "any" or in_type == "any":
-            return True
-
-        # 相同类型
-        if out_type == in_type:
-            return True
-
-        # 子类型规则
-        COMPATIBLE = {
-            "int": {"float", "string"},
-            "float": {"string"},
-            "bool": {"string"},
-        }
-        if in_type in COMPATIBLE.get(out_type, set()):
-            return True
-
-        return False
+        from src.core.workflow_editing import ports_compatible
+        return ports_compatible(out_port.data_type, in_port.data_type)
 
     def _remove_connection_item(self, connection):
         """从场景中移除一条连接线"""

@@ -392,6 +392,8 @@ class WorkflowTabWidget(QWidget):
         self, from_node_id, from_port_name, to_node_id, to_port_name
     ):
         """连接被创建"""
+        self.connections = [conn for conn in self.connections
+                            if not (conn.to_node_id == to_node_id and conn.to_port_name == to_port_name)]
         self.connections.append(
             ConnectionInfo(from_node_id, from_port_name, to_node_id, to_port_name)
         )
@@ -547,20 +549,10 @@ class WorkflowTabWidget(QWidget):
 
     def _collect_upstream_node_ids(self, target_node_id: str) -> set:
         """收集目标节点及其所有上游节点"""
-        required = set()
-        stack = [target_node_id]
-
-        while stack:
-            node_id = stack.pop()
-            if node_id in required:
-                continue
-
-            required.add(node_id)
-            for conn in self.connections:
-                if conn.to_node_id == node_id and conn.from_node_id not in required:
-                    stack.append(conn.from_node_id)
-
-        return required
+        from src.core.workflow_editing import upstream_node_ids
+        return upstream_node_ids(target_node_id, self.nodes, [
+            (conn.from_node_id, conn.to_node_id) for conn in self.connections
+        ])
 
     def _reset_node_run_states(self):
         """清空节点运行状态"""

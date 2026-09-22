@@ -212,7 +212,8 @@ def _parse_kv_pairs(pairs: Optional[List[str]]) -> dict:
             console.print(f"[yellow]警告:[/] 忽略无效参数: {pair} (需要 key=value 格式)")
             continue
         key, _, value = pair.partition("=")
-        result[key.strip()] = value.strip()
+        from src.core.workflow_editing import parse_config_value
+        result[key.strip()] = parse_config_value(value.strip())
     return result
 
 
@@ -261,6 +262,7 @@ def run(
     json_output: bool = typer.Option(
         False, "--json", "-j", help="以 JSON 格式输出执行报告（适合管道/集成）"
     ),
+    node: Optional[str] = typer.Option(None, "--node", help="只执行目标节点及其必需上游节点"),
 ):
     """执行工作流"""
     _init(verbose)
@@ -288,6 +290,14 @@ def run(
     executor = _load_workflow(resolved_path, dispatcher)
 
     total_nodes = len(executor.nodes)
+    if node:
+        from src.core.workflow_editing import upstream_node_ids
+        try:
+            total_nodes = len(upstream_node_ids(node, executor.nodes, [
+                (edge.from_node, edge.to_node) for edge in executor.edges
+            ]))
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc))
 
     # 合并输入数据
     initial_data = {}
@@ -404,6 +414,8 @@ def run(
             executor,
             workflow_path=resolved_path,
             trigger_type="cli",
+            target_node_id=node,
+            handle_interrupt=True,
             initial_data=initial_data,
             callbacks=WorkflowRunCallbacks(
                 on_environment_ready=on_environment_ready,
@@ -414,6 +426,13 @@ def run(
             ),
         )
         report = result.report
+    except KeyboardInterrupt:
+        executor.request_stop()
+        if status is not None:
+            status.stop()
+        if progress_started:
+            progress.stop()
+        raise typer.Exit(code=130)
     except Exception as e:
         if not json_output:
             if status is not None:
@@ -432,7 +451,7 @@ def run(
 
     # JSON 模式输出
     if json_output:
-        result = {
+        result = {**report,
             "success": report.get("success", False),
             "workflow": executor.workflow_name,
             "duration_ms": report.get("duration_ms", 0),
@@ -442,8 +461,14 @@ def run(
             "error": report.get("error"),
             "logs": log_lines,
         }
-        console.print(json.dumps(result, ensure_ascii=False, indent=2))
-        raise typer.Exit(code=0 if report.get("success") else 1)
+        if output:
+            try:
+                Path(output).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            except OSError as exc:
+                typer.echo(json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False))
+                raise typer.Exit(code=1)
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        raise typer.Exit(code=130 if report.get("stopped") else (0 if report.get("success") else 1))
 
     # 普通模式：结果摘要
     duration_ms = report.get("duration_ms", 0)
@@ -473,6 +498,9 @@ def run(
         console.print("\n[bold]执行报告:[/]")
         console.print_json(data=report)
 
+    if report.get("stopped"):
+        console.print("[yellow]工作流已停止[/]")
+        raise typer.Exit(code=130)
     if report.get("success"):
         console.print("[green]工作流执行成功[/]")
         raise typer.Exit(code=0)
@@ -992,8 +1020,17 @@ def node_create(
 def node_delete(
     node_type: str = typer.Argument(..., help="节点类型（如 custom_my_node_123456）"),
 ):
-    """删除自定义节点（所有版本）"""
-    mgr = _get_custom_mgr()
+    """删除自定义或 GitHub 节点（所有版本）"""
+    from src.core.node_registry import NodeSource
+    registry = get_registry()
+    definition = registry.get_node(node_type)
+    if definition and definition.source == NodeSource.GITHUB:
+        from src.core.providers.github_provider import GitHubNodeProvider
+        mgr = GitHubNodeProvider(registry._user_data_dir)
+    elif definition and definition.source in (NodeSource.OFFICIAL, NodeSource.ENTERPRISE):
+        raise typer.BadParameter("仅支持删除自定义或 GitHub 节点")
+    else:
+        mgr = _get_custom_mgr()
     try:
         if mgr.delete_node(node_type):
             registry = get_registry()
@@ -1309,6 +1346,8 @@ def config_show():
         elif key == "github_settings":
             decrypted = mgr.get_github_settings()
             display = _redact_sensitive(decrypted)
+        elif key == "custom_credentials":
+            display = json.dumps({name: "******" for name in value}, ensure_ascii=False)
         elif isinstance(value, dict) or isinstance(value, list):
             display = json.dumps(value, ensure_ascii=False)[:60]
         else:
@@ -1343,6 +1382,18 @@ def config_set(
     敏感字段（API key、GitHub token 等）自动通过操作系统密钥链或本地加密存储。
     """
     mgr = ConfigManager()
+
+    if key == "custom_credentials" or key.startswith("custom_credentials."):
+        from src.core.custom_credentials import set_custom_credential
+        try:
+            if key == "custom_credentials":
+                raise ValueError("请使用 credential set <名称> 或 config set custom_credentials.<名称>")
+            set_custom_credential(mgr, key.split(".", 1)[1], value)
+        except ValueError as exc:
+            console.print(f"[red]错误:[/] {exc}")
+            raise typer.Exit(code=1)
+        console.print("[green]凭据已安全保存[/]")
+        return
 
     # 尝试解析为 JSON 值
     try:
@@ -1387,6 +1438,16 @@ def config_get(
     mgr = ConfigManager()
     conf = mgr.config
 
+    if key == "custom_credentials" or key.startswith("custom_credentials."):
+        custom = conf.get("custom_credentials", {})
+        if key == "custom_credentials":
+            console.print_json(data={name: "******" for name in custom})
+        elif key.split(".", 1)[1] in custom:
+            console.print("******")
+        else:
+            raise typer.BadParameter("凭据不存在")
+        return
+
     # 敏感键使用 getter 解密
     if key == "ai_settings":
         value = mgr.get_ai_settings()
@@ -1415,6 +1476,16 @@ def config_unset(
 ):
     """删除配置项"""
     mgr = ConfigManager()
+    if key == "custom_credentials" or key.startswith("custom_credentials."):
+        from src.core.custom_credentials import remove_custom_credential
+        try:
+            if key == "custom_credentials":
+                raise ValueError("请逐项使用 credential remove <名称>")
+            remove_custom_credential(mgr, key.split(".", 1)[1])
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc))
+        console.print("[green]凭据已删除[/]")
+        return
     if key in mgr.config:
         del mgr.config[key]
         mgr.save_config_sync()
@@ -2199,7 +2270,12 @@ def workflow_connect(
             console.print(f"[red]错误:[/] 连接已存在: {from_id}:{from_port} → {to_id}:{to_port}")
             raise typer.Exit(code=1)
 
-    executor.add_edge(from_id, from_port, to_id, to_port)
+    from src.core.workflow_editing import connect_nodes
+    try:
+        connect_nodes(executor, get_registry(), from_id, from_port, to_id, to_port)
+    except ValueError as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(code=1)
     positions = _extract_node_positions(workflow_path)
     executor.save_workflow(workflow_path, node_positions=positions)
 
@@ -2637,6 +2713,9 @@ def help():
 
 
 # ── 直接执行入口 ──────────────────────────────────
+
+from src.cli_parity import register as _register_parity_commands
+_register_parity_commands(app, node_app, workflow_app, env_app, config_app)
 
 def run_cli():
     """由 main.py 调用的入口函数"""

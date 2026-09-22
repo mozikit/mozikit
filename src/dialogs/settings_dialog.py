@@ -231,146 +231,10 @@ class _AITestWorker(QThread):
         self.timeout = timeout
 
     def run(self):
-        try:
-            missing = []
-            if not self.base_url:
-                missing.append("接口地址")
-            if not self.api_key:
-                missing.append("API 密钥")
-            if not self.model:
-                missing.append("模型")
-            if missing:
-                msg = f"配置不完整，缺少: {'、'.join(missing)}"
-                logger.warning("AI 连接测试失败: %s", msg)
-                self.finished.emit(False, msg)
-                return
-
-            from urllib.parse import urlparse
-
-            parsed = urlparse(self.base_url)
-            if not parsed.scheme or parsed.scheme not in ("http", "https"):
-                msg = "接口地址格式无效，需以 http:// 或 https:// 开头"
-                logger.warning("AI 连接测试失败: %s (base_url=%s)", msg, self.base_url)
-                self.finished.emit(False, msg)
-                return
-
-            normalized = self.base_url.rstrip("/")
-            if normalized.endswith("/chat/completions"):
-                endpoint = normalized
-            elif normalized.endswith("/v1"):
-                endpoint = f"{normalized}/chat/completions"
-            else:
-                endpoint = f"{normalized}/v1/chat/completions"
-
-            logger.info(
-                "AI 连接测试: endpoint=%s, model=%s, timeout=%ds",
-                endpoint,
-                self.model,
-                self.timeout,
-            )
-
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": "hi"}],
-                "max_tokens": 5,
-                "stream": False,
-            }
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            }
-
-            resp = _requests.post(
-                endpoint, json=payload, headers=headers, timeout=self.timeout
-            )
-
-            logger.debug(
-                "AI 连接测试响应: status=%d, len=%d",
-                resp.status_code,
-                len(resp.content),
-            )
-
-            if resp.status_code == 200:
-                try:
-                    body = resp.json()
-                except (ValueError, json.JSONDecodeError):
-                    text = resp.text.strip()
-                    if text.startswith("data:"):
-                        for line in text.splitlines():
-                            line = line.strip()
-                            if not line.startswith("data:"):
-                                continue
-                            data_str = line[5:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                body = json.loads(data_str)
-                                break
-                            except (ValueError, json.JSONDecodeError):
-                                continue
-                        else:
-                            msg = "响应为 SSE 流式格式，但未能解析出有效数据"
-                            logger.error(
-                                "AI 连接测试: %s, body=%.200s", msg, text[:200]
-                            )
-                            self.finished.emit(False, msg)
-                            return
-                    else:
-                        msg = "响应解析失败: 非 JSON 格式"
-                        logger.error("AI 连接测试: %s, body=%.200s", msg, text[:200])
-                        self.finished.emit(False, msg)
-                        return
-                model_used = body.get("model", self.model)
-                usage = body.get("usage", {})
-                logger.info("AI 连接测试成功: model=%s, usage=%s", model_used, usage)
-                self.finished.emit(True, f"连接成功 (模型: {model_used})")
-            elif resp.status_code == 401:
-                logger.warning("AI 连接测试: 认证失败 (401)")
-                self.finished.emit(False, "认证失败，请检查 API 密钥是否正确")
-            elif resp.status_code == 403:
-                logger.warning("AI 连接测试: 权限不足 (403)")
-                self.finished.emit(False, "权限不足，API 密钥可能无权访问该模型")
-            elif resp.status_code == 404:
-                logger.warning("AI 连接测试: 端点未找到 (404), endpoint=%s", endpoint)
-                self.finished.emit(
-                    False, "接口地址未找到 (404)，请检查接口地址和模型名称是否正确"
-                )
-            elif resp.status_code == 429:
-                logger.warning("AI 连接测试: 请求过于频繁 (429)")
-                self.finished.emit(False, "请求过于频繁 (429)，请稍后重试")
-            elif resp.status_code >= 500:
-                logger.error("AI 连接测试: 服务端错误 (%d)", resp.status_code)
-                self.finished.emit(
-                    False, f"服务端错误 ({resp.status_code})，请稍后重试"
-                )
-            else:
-                try:
-                    err_body = resp.json()
-                    err_msg = err_body.get("error", {}).get("message", resp.text[:200])
-                except Exception:
-                    err_msg = resp.text[:200]
-                logger.warning(
-                    "AI 连接测试: HTTP %d, error=%s", resp.status_code, err_msg
-                )
-                self.finished.emit(False, f"HTTP {resp.status_code}: {err_msg}")
-
-        except _requests.exceptions.SSError as e:
-            logger.error("AI 连接测试: SSL 错误: %s", e)
-            self.finished.emit(False, f"SSL 证书错误，请检查接口地址是否正确")
-        except _requests.exceptions.ConnectionError as e:
-            logger.error("AI 连接测试: 连接失败: %s", e)
-            self.finished.emit(False, "连接失败，请检查接口地址是否可达")
-        except _requests.exceptions.Timeout:
-            logger.warning("AI 连接测试: 请求超时 (%ds)", self.timeout)
-            self.finished.emit(
-                False, f"请求超时 ({self.timeout}s)，请检查网络或增大超时时间"
-            )
-        except _requests.exceptions.TooManyRedirects:
-            logger.error("AI 连接测试: 重定向过多")
-            self.finished.emit(False, "重定向过多，请检查接口地址")
-        except Exception as e:
-            logger.exception("AI 连接测试: 未知异常")
-            self.finished.emit(False, f"未知错误: {e}")
+        from src.core.ai_connection import check_ai_connection
+        self.finished.emit(*check_ai_connection(
+            self.base_url, self.api_key, self.model, self.timeout
+        ))
 
 
 class SettingsDialog(QDialog):
@@ -1094,6 +958,7 @@ class SettingsDialog(QDialog):
         self.uv_mirror = uv_mirror
 
         if self.uv_paths:
+            self.path_combo.blockSignals(True)
             self.path_combo.clear()
 
             for display_text, uv_path in uv_entries:
@@ -1102,9 +967,15 @@ class SettingsDialog(QDialog):
             self.path_combo.addItem("自定义路径...", "custom")
             self.path_combo.setEnabled(True)
             if self.uv_paths:
-                self.path_combo.setCurrentIndex(0)
-                self.uv_path = self.uv_paths[0]
+                preferred = self.config_manager.config.get("uv_path")
+                index = self.path_combo.findData(preferred) if preferred else 0
+                if preferred and index < 0:
+                    self.path_combo.insertItem(0, preferred, preferred)
+                    index = 0
+                self.path_combo.setCurrentIndex(max(0, index))
+                self.uv_path = self.path_combo.currentData()
                 self.path_input.setText(self.uv_path)
+            self.path_combo.blockSignals(False)
 
             if self.uv_mirror:
                 self._set_mirror_selection(self.uv_mirror)
@@ -1167,7 +1038,7 @@ class SettingsDialog(QDialog):
                 from core.uv_manager import UVManager
 
                 uv_manager = UVManager()
-                uv_manager.set_custom_uv_path(self.uv_path)
+                uv_manager.set_custom_uv_path(self.uv_path, self.config_manager)
             except:
                 pass
 
@@ -1229,7 +1100,7 @@ class SettingsDialog(QDialog):
                     self.path_combo.setItemData(self.path_combo.currentIndex(), path)
 
                     # 更新UVManager
-                    uv_manager.set_custom_uv_path(path)
+                    uv_manager.set_custom_uv_path(path, self.config_manager)
 
                     ToastWidget.show(self, "自定义 UV 路径设置成功！", "success")
                 else:

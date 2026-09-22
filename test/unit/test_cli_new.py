@@ -108,6 +108,12 @@ class TestCLIRunJsonCommand(unittest.TestCase):
 
     def setUp(self):
         self.runner = CliRunner()
+        for target in ("src.core.workflow_run_dispatcher.RuntimeClient",
+                       "src.core.workflow_run_dispatcher.ConfigManager"):
+            patcher = patch(target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
 
     def _make_executor(self, nodes_count=2, **overrides):
         mock_exe = MagicMock()
@@ -1637,7 +1643,7 @@ class TestCLIWorkflowEditCommands(unittest.TestCase):
         call_args = mock_executor.add_node.call_args
         added_node = call_args[0][0]
         self.assertEqual(added_node.config.get("variable_name"), "x")
-        self.assertEqual(added_node.config.get("value"), "42")
+        self.assertEqual(added_node.config.get("value"), 42)
 
     @patch("src.cli._load_workflow")
     def test_workflow_add_node_generates_unique_id(self, mock_load):
@@ -1741,9 +1747,13 @@ class TestCLIWorkflowEditCommands(unittest.TestCase):
         mock_load.return_value = mock_executor
         mock_pos.return_value = {}
 
-        result = self.runner.invoke(app, [
-            "workflow", "connect", "/fake/wf.json", "from_node", "to_node",
-        ])
+        registry = MagicMock()
+        registry.get_node.return_value.input_schema = {"input": {"type": "any"}}
+        registry.get_node.return_value.output_schema = {"output": {"type": "any"}}
+        with patch("src.cli.get_registry", return_value=registry):
+            result = self.runner.invoke(app, [
+                "workflow", "connect", "/fake/wf.json", "from_node", "to_node",
+            ])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("已连接", result.output)
         mock_executor.add_edge.assert_called_once_with(

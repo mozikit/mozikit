@@ -7,6 +7,7 @@
 
 - [快速开始](user-guide/QUICK_START.md) - 新手入门指南
 - [UI 使用指南](user-guide/UI_GUIDE.md) - 界面操作说明
+- [GUI 与 CLI 功能对应](user-guide/CLI_GUI_PARITY.md) - 命令映射、配置类型和执行行为
 - [主题支持](user-guide/THEME_SUPPORT.md) - 主题配置和使用
 - [主题快速参考](user-guide/THEME_QUICK_REFERENCE.md) - 主题设置速查
 - [工作流执行](user-guide/WORKFLOW_EXECUTION.md) - 工作流运行指南

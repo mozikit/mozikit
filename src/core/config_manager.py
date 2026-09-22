@@ -370,7 +370,10 @@ class ConfigManager:
 
         # 限制历史记录数量（保留最近500条）
         self.config["execution_history"] = self.config["execution_history"][:500]
-        self.save_config()
+        # Execution records are read immediately by the CLI/GUI history views.
+        # Persist synchronously so a caller never races this write with a
+        # follow-up save of the same configuration file.
+        self.save_config_sync()
 
     def clear_execution_history(self, workflow_name: str = None):
         """清除运行历史

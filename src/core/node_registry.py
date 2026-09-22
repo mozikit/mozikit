@@ -685,6 +685,9 @@ class NodeRegistry:
         if not node:
             return False
 
+        import ast
+        ast.parse(source_code)
+
         if node.source == NodeSource.CUSTOM:
             from src.core.custom_node_manager import CustomNodeManager
 
