@@ -21,6 +21,24 @@ Mozikit 是一个**现代化的 Python 可视化工作流自动化工具**。它
 
 > **设计哲学**：CLI 与 GUI 共享同一套核心引擎——您在画布上编排的工作流，同样可以在终端中通过一行命令执行，甚至通过 REST API 远程触发。
 
+## 🪟 Windows Desktop 发行版
+
+普通用户不需要安装 Python、pip、uv 或虚拟环境。下载安装 **Mozikit** MSI 后，开始菜单中的 **Mozikit** 会启动 GUI；安装目录同时提供同一套 Core 驱动的 `mozikit.exe` CLI。
+
+```powershell
+# 推荐：安装后打开新终端即可使用
+winget install Mozikit.Mozikit
+
+mozikit --version
+mozikit --help
+mozikit workflow list --json
+mozikit run .\workflows\example.json --json
+```
+
+正式安装会将安装目录加入 PATH，因此脚本和 Agent 可以直接调用 `mozikit`。配置、凭据、MCP registry、运行历史和默认工作流位于 `%LOCALAPPDATA%\Mozikit`，不会写入 Program Files 安装目录。
+
+Portable ZIP（`Mozikit-Windows-x64.zip`）包含 GUI、CLI、共享运行时、官方节点和 bundled UV；解压后可直接运行 `Mozikit\mozikit.exe`，不会默认修改 PATH、开始菜单或卸载注册。需要时可从 Portable CLI 执行 `mozikit cli install` 注册当前用户 PATH。
+
 ---
 
 ## ✨ 核心特性
@@ -73,9 +91,12 @@ Mozikit/
 ├── LICENSE                       # Apache 2.0
 ├── build.py                      # PyInstaller 构建脚本
 ├── auto_build.py                 # 非交互式自动构建
+├── Mozikit.spec                  # GUI/CLI 共享运行时的 multi-executable spec
 │
 ├── src/                          # 源代码
 │   ├── cli.py                    # CLI 入口（Typer 命令树，50+ 子命令）
+│   ├── gui_launcher.py            # MozikitDesktop.exe 入口
+│   ├── cli_launcher.py            # mozikit.exe 入口
 │   ├── main_window.py            # PySide6 主窗口
 │   │
 │   ├── core/                     # ★ 核心逻辑层（CLI 与 GUI 共享）
@@ -149,7 +170,9 @@ Mozikit/
 │   └── simple_workflow_example.py
 │
 ├── scripts/                      # 构建/部署脚本
+│   ├── download_uv.ps1            # 下载并校验固定版本 bundled UV
 │   ├── build_msi.ps1             #   MSI 安装包
+│   ├── sign_windows.ps1           #   可选 Authenticode 签名
 │   └── generate_winget_manifest.ps1
 │
 └── wix/
@@ -160,16 +183,42 @@ Mozikit/
 
 ## 🚀 快速开始
 
-### 环境要求
+### 普通用户（Windows）
+
+1. 从 GitHub Releases 下载 `mozikit-vX.Y.Z-x64.msi`，或执行 `winget install Mozikit.Mozikit`。
+2. 安装完成后从开始菜单启动 **Mozikit**。
+3. 新开终端后执行 `mozikit --version` 验证 CLI。
+
+安装版自带 PySide6、运行时、官方节点和 UV；不需要额外安装 Python、pip、uv 或 venv。
+
+### CLI / Agent 用户
+
+安装 Desktop 后，CLI 的唯一推荐入口是 `mozikit`：
+
+```powershell
+where mozikit
+mozikit --version
+mozikit workflow list --json
+mozikit workflow status .\workflows\demo.json --json
+mozikit run .\workflows\demo.json --json
+```
+
+`--json` 模式只把机器可读结果写入 stdout；日志和诊断信息写入 stderr。CLI 不启动 Qt、不弹 GUI，并返回可用于脚本的退出码。
+
+`mozikit cli status --json` 的 `source` 会区分 `installer`（MSI machine PATH）、`user`（Portable 当前用户 PATH）和 `installer+user`；Portable 注册不会重复添加 MSI 已管理的目录，`cli uninstall` 只移除 user PATH。
+
+### Developer 环境
+
+只有从源码开发或贡献代码时，才需要以下 Python/UV 环境：
 
 | 项目 | 要求 |
 |------|------|
 | **Python** | ≥ 3.8 |
 | **操作系统** | Windows 10/11, macOS 10.15+, Linux (Ubuntu 18.04+) |
 | **内存** | 最低 4 GB，推荐 8 GB |
-| **UV**（推荐） | 安装 [UV 包管理器](https://docs.astral.sh/uv/) `pip install uv` |
+| **UV**（推荐） | 开发环境使用 [UV 包管理器](https://docs.astral.sh/uv/) |
 
-### 安装
+#### 源码安装
 
 ```bash
 # 1. 克隆仓库
@@ -193,12 +242,11 @@ uv pip install -e .[serve]
 uv pip install -e .[all]
 ```
 
-### 运行
+#### 源码运行
 
 ```bash
-# ── GUI 模式（桌面应用）──
-# 前置：需先安装 GUI 扩展（uv pip install -e .[gui]），未安装时启动会提示
-mozikit-gui          # 推荐入口（或 python main.py，无参数默认进入 GUI）
+# ── GUI 模式（源码开发）──
+python main.py
 
 # ── CLI 模式（基础安装即可，无需 PySide6）──
 python main.py --help
@@ -207,12 +255,16 @@ python main.py schedule list
 python main.py serve --port 8080   # 需先安装: uv pip install -e .[serve]
 ```
 
-### 打包为可执行文件
+### 打包为 Windows Desktop
 
 ```bash
 python build.py              # 交互式构建
 python auto_build.py         # 非交互式自动构建
-# 输出：dist/Mozikit/Mozikit.exe
+# 先下载固定版本 UV，再构建共享目录发行版
+powershell -File .\scripts\download_uv.ps1
+# 输出：dist/Mozikit/MozikitDesktop.exe
+#       dist/Mozikit/mozikit.exe
+#       dist/Mozikit/runtime/uv.exe
 ```
 
 ---
@@ -222,7 +274,7 @@ python auto_build.py         # 非交互式自动构建
 Mozikit 提供完整的 CLI（基于 Typer + Rich），**无需启动 GUI** 即可完成所有操作。
 
 ```
-Mozikit
+mozikit
 ├── run <path> | --name <name>     执行工作流
 ├── schedule                       定时任务管理
 │   ├── list                       列出所有任务
@@ -238,7 +290,12 @@ Mozikit
 │   ├── remove <name>              删除环境
 │   ├── install <name> <pkgs...>   安装包
 │   ├── status                     查看 UV 状态
+│   ├── install-uv                 确认 bundled/source UV
 │   └── set-mirror <url>           设置镜像源
+├── cli                            CLI PATH 注册状态（Portable 可用）
+│   ├── status [--json]
+│   ├── install [--json]
+│   └── uninstall [--json]
 ├── node                           节点管理
 │   ├── list                       列出可用节点
 │   ├── info <name>                查看详情
@@ -276,16 +333,16 @@ Mozikit
 
 ```bash
 # 执行工作流并输出 JSON（适合 CI/脚本）
-Mozikit run workflow.json --json | jq '.duration_ms'
+mozikit run workflow.json --json | jq '.duration_ms'
 
 # 按名称查找并执行
-Mozikit run --name my_workflow
+mozikit run --name my_workflow
 
 # 添加定时任务（工作日早 9 点执行）
-Mozikit schedule add workflow.json --cron "0 9 * * 1-5" --name "每日报告"
+mozikit schedule add workflow.json --cron "0 9 * * 1-5" --name "每日报告"
 
 # 守护进程模式运行调度器
-Mozikit schedule daemon --tick 5 --logfile scheduler.log
+mozikit schedule daemon --tick 5 --logfile scheduler.log
 
 # 通过 API 执行
 curl -X POST http://localhost:8080/workflows/run \

@@ -8,6 +8,10 @@
 
 ## 主要功能
 
+Windows Desktop 发行版默认使用安装目录中的 bundled UV。正式安装版不会执行
+`sys.executable -m pip`，也不会要求用户准备 Python；下面的 PowerShell/pip 安装路径
+仅适用于源码或普通 Python package 环境。
+
 ### 1. UV 自动检测
 - **自动识别 UV 安装状态**：启动时自动检测系统中是否安装了 uv
 - **显示 UV 路径**：如果已安装，显示 uv 可执行文件的完整路径

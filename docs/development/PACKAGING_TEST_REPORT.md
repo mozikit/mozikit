@@ -1,4 +1,6 @@
-# Mozikit 打包测试报告
+# Mozikit 打包测试报告（历史快照）
+
+> 本文记录旧的单文件/旧目录测试快照，不能作为当前 Windows Desktop 发布验收。当前验证标准请以 [WINDOWS_DESKTOP_DISTRIBUTION.md](WINDOWS_DESKTOP_DISTRIBUTION.md) 和 `build.py verify_build()` 为准。
 
 ## 📊 测试结果
 

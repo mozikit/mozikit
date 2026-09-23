@@ -3,7 +3,7 @@
 业务操作通过 CLI 可执行；窗口停靠、标签页切换、缩放等显示操作仍由 GUI 提供。
 CLI 编辑工作流时保留原有节点坐标和画布状态。
 
-在源码目录使用 `.venv\Scripts\mozikit.exe`，或激活环境后使用 `mozikit`。
+Windows Desktop 安装后直接使用 PATH 中的 `mozikit`；源码目录则使用 `.venv\Scripts\mozikit.exe`，或激活环境后使用 `mozikit`。
 下文省略可执行文件前缀。Trigger、脚本命令的路径或名称应位于 `--workspace` 指定的工作区内。
 
 | GUI 操作 | CLI |

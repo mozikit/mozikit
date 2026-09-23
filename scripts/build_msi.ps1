@@ -17,6 +17,19 @@ if (-not (Test-Path $SourceDir)) {
 }
 $resolvedSourceDir = (Resolve-Path $SourceDir).Path
 
+$requiredDistributionFiles = @(
+    "MozikitDesktop.exe",
+    "mozikit.exe",
+    "runtime\uv.exe",
+    "official_nodes\manifest.json"
+)
+foreach ($relativePath in $requiredDistributionFiles) {
+    $candidate = Join-Path $resolvedSourceDir $relativePath
+    if (-not (Test-Path $candidate)) {
+        throw "Missing required Desktop distribution entry: $candidate"
+    }
+}
+
 function Get-WixCommand {
     param([string]$Name)
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue

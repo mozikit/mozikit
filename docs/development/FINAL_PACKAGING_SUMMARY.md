@@ -1,4 +1,6 @@
-# Mozikit 最终打包解决方案
+# Mozikit 最终打包解决方案（历史文档）
+
+> 本文记录旧的单入口打包过程，已不再代表当前 Windows Desktop 分发契约。当前方案请以 [WINDOWS_DESKTOP_DISTRIBUTION.md](WINDOWS_DESKTOP_DISTRIBUTION.md) 和仓库根目录 `Mozikit.spec` 为准：GUI 为 `MozikitDesktop.exe`，CLI 为 `mozikit.exe`，并共享 `_internal` 和 bundled UV。
 
 ## 🎯 **问题解决状态**
 

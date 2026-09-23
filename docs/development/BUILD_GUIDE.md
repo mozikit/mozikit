@@ -1,69 +1,28 @@
 # Mozikit 打包指南
 
-本指南介绍如何将 Mozikit 项目打包为可执行文件。
+Windows 当前分发基线请以 [WINDOWS_DESKTOP_DISTRIBUTION.md](WINDOWS_DESKTOP_DISTRIBUTION.md) 为准。本页中的单文件 `Mozikit.exe`、`quick_build.py` 和旧目录名是历史记录，不代表当前 Desktop 发行版。
 
-## 🎉 打包状态：已完成
+## 当前 Windows 构建入口
 
-PyInstaller 打包功能已完全实现并测试成功！可以生成：
-- ✅ 单文件可执行文件 (43.3 MB)
-- ✅ 目录版本（更快启动）
-- ✅ 便携版本（带启动脚本）
-
-## 方法一：完整打包 (推荐)
-
-使用完整的打包脚本，包含所有优化和配置：
+先下载固定版本的 bundled UV，再使用共享 GUI/CLI spec：
 
 ```bash
-python build.py
+powershell -File .\scripts\download_uv.ps1
+python auto_build.py
 ```
 
-**特点：**
-- ✅ 自动检查和安装依赖
-- ✅ 创建详细的 PyInstaller spec 配置
-- ✅ 优化包大小和性能
-- ✅ 生成多种版本
-- ✅ 创建便携版本
+构建结果：
 
-## 方法二：快速打包
-
-使用快速打包脚本，适合测试：
-
-```bash
-python quick_build.py
+```text
+dist/Mozikit/
+├── MozikitDesktop.exe
+├── mozikit.exe
+├── runtime/uv.exe
+├── official_nodes/
+└── _internal/
 ```
 
-**特点：**
-- ⚡ 打包速度快
-- 🎯 配置简单
-- 📦 适合快速测试
-
-## 方法三：手动打包
-
-如果需要自定义配置，可以手动运行 PyInstaller：
-
-```bash
-# 安装 PyInstaller
-pip install pyinstaller
-
-# 基础打包
-pyinstaller --name=Mozikit --windowed --add-data="assets;assets" main.py
-
-# 包含图标的打包
-pyinstaller --name=Mozikit --windowed --icon=assets/Mozikit_64.png --add-data="assets;assets" main.py
-```
-
-## 输出文件说明
-
-打包完成后，会在 `dist/` 目录下生成以下文件：
-
-### 🎯 主要输出
-- **`Mozikit.exe`** - 单文件版本，适合分发
-- **`Mozikit_dir/`** - 目录版本，启动更快，适合调试
-
-### 📦 便携版本 (仅完整打包)
-- **`Mozikit_Portable/`** - 包含启动脚本的便携版本
-  - Windows: `启动Mozikit.bat`
-  - Linux/Mac: `start_Mozikit.sh`
+`release/Mozikit-Windows-x64.zip` 是不修改 PATH 的 Portable ZIP；MSI 使用 `scripts/build_msi.ps1` 生成。
 
 ## 常见问题
 
@@ -77,7 +36,7 @@ pyinstaller --name=Mozikit --windowed --icon=assets/Mozikit_64.png --add-data="a
 ### 2. 运行时错误
 
 如果打包后运行出错：
-1. 先测试目录版本 (`Mozikit_dir/`)
+1. 先测试目录版本 (`dist/Mozikit/`)
 2. 检查控制台输出（临时移除 `--windowed` 参数）
 3. 添加缺失的模块到 `hiddenimports`
 
@@ -85,8 +44,8 @@ pyinstaller --name=Mozikit --windowed --icon=assets/Mozikit_64.png --add-data="a
 
 确保资源文件正确包含：
 ```python
-# 在 spec 文件中
-added_files = [
+# 在 Mozikit.spec 的 datas 中
+datas = [
     ('assets/Mozikit_64.png', 'assets'),
     ('assets/icons', 'assets/icons'),
 ]
@@ -94,13 +53,7 @@ added_files = [
 
 ### 4. UV 命令找不到
 
-确保 UV 相关模块被正确导入：
-```python
-hiddenimports = [
-    'uv',
-    'src.core.uv_manager',
-]
-```
+不要把 `uv` 当作 PyInstaller hidden import。运行 `scripts/download_uv.ps1`，确认 `build/bundled_uv/uv.exe` 存在后再构建；正式 Desktop 产物会将它放到 `runtime/uv.exe`。
 
 ### 5. 图标格式问题
 
@@ -121,10 +74,10 @@ PyInstaller 在 Windows 上需要：
 替换 `assets/Mozikit_64.png` 为你的图标文件
 
 ### 添加额外文件
-在打包脚本中修改 `added_files` 列表：
+在 `Mozikit.spec` 中修改 `datas` 列表：
 
 ```python
-added_files = [
+datas = [
     ('assets', 'assets'),
     ('examples', 'examples'),
     ('docs', 'docs'),  # 添加文档
@@ -145,11 +98,11 @@ hiddenimports = [
 ## 分发建议
 
 ### Windows 用户
-- 推荐使用单文件版本 `Mozikit.exe`
-- 可直接发送给其他用户使用
+- 推荐使用 MSI；开始菜单显示为 Mozikit，CLI 入口为 `mozikit`
+- 无管理员权限时可使用 `Mozikit-Windows-x64.zip`
 
 ### 开发/测试
-- 推荐使用目录版本 `Mozikit_dir/`
+- 推荐使用目录版本 `dist/Mozikit/`
 - 启动更快，便于调试
 
 ### 企业分发
@@ -160,11 +113,9 @@ hiddenimports = [
 
 - **Python**: 3.8+
 - **PySide6**: 6.0+
-- **PyInstaller**: 5.0+
+- **PyInstaller**: 6.13+
 
-确保目标机器安装了必要的运行时库：
-- Windows: Visual C++ Redistributable
-- Linux: 相应的 Qt 库依赖
+正式 Desktop 产物自带 Python、PySide6、运行时、官方节点和 bundled UV；发布验收仍应在干净 Windows 机器上验证 VC++/签名/权限环境。
 
 ## 许可证
 

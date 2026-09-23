@@ -138,6 +138,8 @@ print("###JSON_OUTPUT_END###")
 
 ### 1. 安装 UV
 
+Windows Mozikit Desktop 用户跳过本节：安装包已经包含经过校验的 bundled UV，不需要 Python、pip 或单独安装 UV。以下命令只适用于源码运行环境。
+
 ```bash
 # Windows (PowerShell)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"

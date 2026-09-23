@@ -1,5 +1,7 @@
 # 构建参考指南
 
+> Windows 当前发布流程以 [WINDOWS_DESKTOP_DISTRIBUTION.md](WINDOWS_DESKTOP_DISTRIBUTION.md) 和仓库根目录的 `Mozikit.spec` 为准。本参考中的旧单文件输出仅保留作历史说明。
+
 ## 构建文件说明
 
 Mozikit 项目包含以下构建相关文件：
@@ -17,7 +19,7 @@ Mozikit 项目包含以下构建相关文件：
 
 - `quick_build.py` - 快速构建脚本（功能已整合到 build.py）
 - `final_build.py` - 最终构建脚本（功能已整合到 build.py）
-- `auto_build.py` - 自动构建脚本（功能已整合到 build.py）
+- `auto_build.py` - Windows 非交互式 Desktop 构建入口
 - `fix_icon_build.py` - 图标修复脚本（功能已整合到 build.py）
 - `install_pillow.py` - Pillow 安装脚本（不再需要）
 - `create_settings_icon.py` - 空文件（无用文件）
@@ -31,12 +33,11 @@ python build.py
 ```
 
 这个脚本会：
-1. 检查必要的依赖
-2. 清理之前的构建
-3. 创建 PyInstaller 规范文件
-4. 执行构建
-5. 验证构建结果
-6. 创建便携包
+1. 检查必要的依赖和固定 bundled UV
+2. 清理之前的 PyInstaller 输出
+3. 使用 `Mozikit.spec` 构建 GUI/CLI 多入口共享目录
+4. 验证 `mozikit.exe`、`MozikitDesktop.exe`、UV 和官方节点
+5. 创建 Portable ZIP
 
 ### 方法二：使用批处理脚本（Windows）
 
@@ -66,7 +67,7 @@ pyinstaller Mozikit.spec
 ## 构建输出
 
 构建完成后，可执行文件位于：
-- **Windows**: `dist/Mozikit.exe`
+- **Windows Desktop**: `dist/Mozikit/MozikitDesktop.exe`、`dist/Mozikit/mozikit.exe`
 - **Linux**: `dist/Mozikit`
 - **Mac**: `dist/Mozikit.app`
 
@@ -167,12 +168,12 @@ python build.py
 
 2. **创建安装包**
    ```bash
-   python build.py --package
+   powershell -File .\scripts\build_msi.ps1 -Tag vX.Y.Z
    ```
 
 3. **生成校验和**
    ```bash
-   sha256sum dist/Mozikit.exe > checksum.txt
+   Get-FileHash release\*.msi,release\*.zip -Algorithm SHA256
    ```
 
 4. **文档更新**
