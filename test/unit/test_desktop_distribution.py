@@ -41,6 +41,27 @@ def test_launchers_delegate_to_their_single_adapter(monkeypatch):
     assert gui_called == [True]
 
 
+def test_cli_launcher_configures_utf8_console_streams(monkeypatch):
+    import src.cli_launcher as cli_launcher
+
+    class FakeStream:
+        def __init__(self):
+            self.calls = []
+
+        def reconfigure(self, **kwargs):
+            self.calls.append(kwargs)
+
+    stdout = FakeStream()
+    stderr = FakeStream()
+    monkeypatch.setattr(cli_launcher.sys, "stdout", stdout)
+    monkeypatch.setattr(cli_launcher.sys, "stderr", stderr)
+
+    cli_launcher._configure_console_streams()
+
+    assert stdout.calls == [{"encoding": "utf-8", "errors": "replace"}]
+    assert stderr.calls == [{"encoding": "utf-8", "errors": "replace"}]
+
+
 def test_bundled_uv_path_uses_frozen_runtime_directory(tmp_path, monkeypatch):
     install_dir = tmp_path / "Mozikit"
     uv_path = install_dir / "runtime" / "uv.exe"
