@@ -14,6 +14,57 @@ from src.core import resolve_workspace
 logger = get_logger("uv_manager")
 
 
+def get_bundled_uv_path() -> Optional[Path]:
+    """Locate the UV executable shipped with Mozikit Desktop.
+
+    The release layout places it at ``runtime/uv.exe`` beside the two
+    launchers.  The source-build location is intentionally separate from the
+    repository so the binary is downloaded by CI and never committed.
+    """
+    executable_name = "uv.exe" if os.name == "nt" else "uv"
+    candidates: list[Path] = []
+
+    override = os.environ.get("MOZIKIT_BUNDLED_UV_PATH")
+    if override:
+        candidates.append(Path(override).expanduser())
+
+    if getattr(sys, "frozen", False):
+        executable_dir = Path(sys.executable).resolve().parent
+        candidates.extend(
+            [
+                executable_dir / "runtime" / executable_name,
+                executable_dir / executable_name,
+            ]
+        )
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            meipass_dir = Path(meipass)
+            candidates.extend(
+                [
+                    meipass_dir / "runtime" / executable_name,
+                    meipass_dir / executable_name,
+                ]
+            )
+    else:
+        project_root = Path(__file__).resolve().parents[2]
+        candidates.extend(
+            [
+                project_root / "build" / "bundled_uv" / executable_name,
+                project_root / "runtime" / executable_name,
+            ]
+        )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(os.path.normpath(str(candidate)))
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
 class UVManager:
     """UV虚拟环境管理器"""
     
@@ -476,8 +527,7 @@ class UVManager:
     
     def check_uv_installed(self) -> bool:
         """检查uv是否已安装"""
-        uv_paths = self.find_uv_installations()
-        return len(uv_paths) > 0
+        return self.get_preferred_uv_path() is not None
 
     def create_environment(self, name: str, python_version: str = "3.12") -> bool:
         """创建独立虚拟环境（CLI 使用）
@@ -540,51 +590,56 @@ class UVManager:
         return envs
 
     def find_uv_installations(self) -> List[str]:
-        """
-        查找系统中所有可用的uv安装路径
-        
-        Returns:
-            可用的uv可执行文件路径列表
-        """
-        uv_paths = []
-        
-        if os.name == 'nt':
-            creationflags = 0x08000000  # CREATE_NO_WINDOW
-        else:
-            creationflags = 0
+        """Return all verified UV installations in precedence order."""
+        candidates = []
+        if self.custom_uv_path:
+            candidates.append(self.custom_uv_path)
+        bundled_path = self.get_bundled_uv_path()
+        if bundled_path:
+            candidates.append(bundled_path)
+        candidates.extend(self._find_path_uv_installations())
+        candidates.extend(self._get_common_uv_paths())
+        return self._validate_uv_paths(candidates)
 
-        # 1. 首先检查PATH中的uv命令
+    def _find_path_uv_installations(self) -> List[str]:
+        """Return UV candidates resolved by the current process PATH."""
+        creationflags = 0x08000000 if os.name == 'nt' else 0
         try:
             result = subprocess.run(
                 ["where" if os.name == 'nt' else "which", "uv"],
                 capture_output=True,
                 text=True,
                 timeout=5,
-                creationflags=creationflags
+                creationflags=creationflags,
             )
             if result.returncode == 0:
-                # where/which 可能返回多个路径
-                paths = [path.strip() for path in result.stdout.strip().split('\n') if path.strip()]
-                uv_paths.extend(paths)
-        except:
+                return [
+                    path.strip()
+                    for path in result.stdout.strip().splitlines()
+                    if path.strip()
+                ]
+        except Exception:
             pass
-        
-        # 2. 检查常见的安装位置
-        common_paths = self._get_common_uv_paths()
-        
-        for path in common_paths:
-            if os.path.isfile(path) and os.access(path, os.X_OK):
-                if path not in uv_paths:
-                    uv_paths.append(path)
-        
-        # 3. 验证每个找到的uv是否真的可用
+        return []
+
+    def get_bundled_uv_path(self) -> Optional[str]:
+        """Return the bundled UV path without considering system installs."""
+        path = get_bundled_uv_path()
+        return str(path) if path else None
+
+    def _validate_uv_paths(self, uv_paths: List[str]) -> List[str]:
+        """Verify candidates and remove duplicates while preserving order."""
         valid_uv_paths = []
+        seen = set()
         for uv_path in uv_paths:
-            if self._verify_uv_executable(uv_path):
+            key = os.path.normcase(os.path.normpath(str(uv_path)))
+            if key in seen:
+                continue
+            seen.add(key)
+            if os.path.isfile(uv_path) and self._verify_uv_executable(uv_path):
                 valid_uv_paths.append(uv_path)
-        
         return valid_uv_paths
-    
+
     def _get_common_uv_paths(self) -> List[str]:
         """获取常见的uv安装路径"""
         paths = []
@@ -685,34 +740,17 @@ class UVManager:
         # 如果有自定义路径，优先使用
         if self.custom_uv_path and os.path.isfile(self.custom_uv_path) and self._verify_uv_executable(self.custom_uv_path):
             return self.custom_uv_path
-        
-        uv_paths = self.find_uv_installations()
-        if not uv_paths:
-            return None
-        
-        if os.name == 'nt':
-            creationflags = 0x08000000  # CREATE_NO_WINDOW
-        else:
-            creationflags = 0
 
-        # 优先选择PATH中的uv（通常是第一个）
-        try:
-            result = subprocess.run(
-                ["where" if os.name == 'nt' else "which", "uv"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                creationflags=creationflags
-            )
-            if result.returncode == 0:
-                primary_path = result.stdout.strip().split('\n')[0].strip()
-                if primary_path in uv_paths:
-                    return primary_path
-        except:
-            pass
-        
-        # 如果PATH中的不可用，返回第一个找到的
-        return uv_paths[0]
+        bundled_path = self.get_bundled_uv_path()
+        if bundled_path and self._verify_uv_executable(bundled_path):
+            return bundled_path
+
+        path_candidates = self._validate_uv_paths(self._find_path_uv_installations())
+        if path_candidates:
+            return path_candidates[0]
+
+        common_candidates = self._validate_uv_paths(self._get_common_uv_paths())
+        return common_candidates[0] if common_candidates else None
     
     def set_custom_uv_path(self, uv_path: str, config_manager=None) -> bool:
         """

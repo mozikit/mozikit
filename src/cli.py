@@ -79,6 +79,64 @@ runtime_app = typer.Typer(help="管理持久 Runtime Daemon", no_args_is_help=Tr
 app.add_typer(runtime_app, name="runtime")
 
 
+cli_app = typer.Typer(help="管理 mozikit CLI 注册", no_args_is_help=True)
+app.add_typer(cli_app, name="cli")
+
+
+def _print_cli_registration_result(result: dict, json_output: bool) -> None:
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    status = result.get("status", "unknown")
+    source = result.get("source") or "-"
+    path = result.get("path") or "-"
+    locations = ", ".join(result.get("locations", [])) or "-"
+    console.print(f"状态: {status}")
+    console.print(f"来源: {source}")
+    console.print(f"CLI:   {path}")
+    console.print(f"PATH:  {locations}")
+
+
+@cli_app.command("status")
+def cli_status(
+    json_output: bool = typer.Option(False, "--json", "-j", help="以 JSON 格式输出"),
+):
+    """显示当前发行版 CLI 是否已注册到 PATH。"""
+    from src.core.cli_registration import get_cli_registration_status
+
+    _print_cli_registration_result(get_cli_registration_status(), json_output)
+
+
+@cli_app.command("install")
+def cli_install(
+    json_output: bool = typer.Option(False, "--json", "-j", help="以 JSON 格式输出"),
+):
+    """将当前 Portable/Desktop CLI 注册到当前用户 PATH。"""
+    from src.core.cli_registration import register_cli
+
+    try:
+        result = register_cli()
+    except RuntimeError as exc:
+        typer.echo(f"错误: {exc}", err=True)
+        raise typer.Exit(code=1)
+    _print_cli_registration_result(result, json_output)
+
+
+@cli_app.command("uninstall")
+def cli_uninstall(
+    json_output: bool = typer.Option(False, "--json", "-j", help="以 JSON 格式输出"),
+):
+    """移除当前用户 PATH 中由 Mozikit CLI 注册的目录。"""
+    from src.core.cli_registration import unregister_cli
+
+    try:
+        result = unregister_cli()
+    except RuntimeError as exc:
+        typer.echo(f"错误: {exc}", err=True)
+        raise typer.Exit(code=1)
+    _print_cli_registration_result(result, json_output)
+
+
 @runtime_app.command("daemon")
 def runtime_daemon():
     """在前台运行当前用户唯一的 Runtime Daemon。"""
@@ -182,34 +240,45 @@ def _init(verbose: bool = False):
                 h.setLevel(logging.DEBUG)
 
 
+def _emit_json_error(message: str) -> None:
+    """Write one machine-readable error document to stdout."""
+    typer.echo(json.dumps({"success": False, "error": message}, ensure_ascii=False))
+
+
 def _load_workflow(
-    path_str: str, dispatcher: Optional[WorkflowRunDispatcher] = None
+    path_str: str,
+    dispatcher: Optional[WorkflowRunDispatcher] = None,
+    json_output: bool = False,
 ) -> WorkflowExecutor:
     """加载工作流文件，失败时退出进程"""
     path = Path(path_str)
     if not path.exists():
-        console.print(f"[red]错误:[/] 工作流文件不存在: {path}")
+        message = f"工作流文件不存在: {path}"
+        _emit_json_error(message) if json_output else console.print(f"[red]错误:[/] {message}")
         raise typer.Exit(code=1)
     if not path.is_file():
-        console.print(f"[red]错误:[/] 路径不是文件: {path}")
+        message = f"路径不是文件: {path}"
+        _emit_json_error(message) if json_output else console.print(f"[red]错误:[/] {message}")
         raise typer.Exit(code=1)
 
     try:
         executor = (dispatcher or WorkflowRunDispatcher()).load_workflow(str(path))
         return executor
     except Exception as e:
-        console.print(f"[red]错误:[/] 加载工作流失败: {e}")
+        message = f"加载工作流失败: {e}"
+        _emit_json_error(message) if json_output else console.print(f"[red]错误:[/] {message}")
         raise typer.Exit(code=1)
 
 
-def _parse_kv_pairs(pairs: Optional[List[str]]) -> dict:
+def _parse_kv_pairs(pairs: Optional[List[str]], json_output: bool = False) -> dict:
     """将 key=value 列表解析为字典"""
     if not pairs:
         return {}
     result = {}
     for pair in pairs:
         if "=" not in pair:
-            console.print(f"[yellow]警告:[/] 忽略无效参数: {pair} (需要 key=value 格式)")
+            if not json_output:
+                console.print(f"[yellow]警告:[/] 忽略无效参数: {pair} (需要 key=value 格式)")
             continue
         key, _, value = pair.partition("=")
         from src.core.workflow_editing import parse_config_value
@@ -275,19 +344,25 @@ def run(
         wf_list = scan_workflows(str(resolve_workspace()))
         matches = [wf for wf in wf_list if wf["name"] == name]
         if not matches:
-            console.print(f"[red]错误:[/] 未找到工作流: {name}")
-            console.print(f"  使用 'workflow list' 查看可用工作流")
+            if json_output:
+                _emit_json_error(f"未找到工作流: {name}")
+            else:
+                console.print(f"[red]错误:[/] 未找到工作流: {name}")
+                console.print(f"  使用 'workflow list' 查看可用工作流")
             raise typer.Exit(code=1)
         resolved_path = matches[0]["path"]
     elif workflow_path:
         resolved_path = workflow_path
     else:
-        console.print("[red]错误:[/] 请指定工作流路径或使用 --name 指定工作流名称")
-        console.print("  用法: mozikit run <path> 或 mozikit run --name <name>")
+        if json_output:
+            _emit_json_error("请指定工作流路径或使用 --name 指定工作流名称")
+        else:
+            console.print("[red]错误:[/] 请指定工作流路径或使用 --name 指定工作流名称")
+            console.print("  用法: mozikit run <path> 或 mozikit run --name <name>")
         raise typer.Exit(code=1)
 
     dispatcher = WorkflowRunDispatcher()
-    executor = _load_workflow(resolved_path, dispatcher)
+    executor = _load_workflow(resolved_path, dispatcher, json_output)
 
     total_nodes = len(executor.nodes)
     if node:
@@ -297,6 +372,9 @@ def run(
                 (edge.from_node, edge.to_node) for edge in executor.edges
             ]))
         except ValueError as exc:
+            if json_output:
+                _emit_json_error(str(exc))
+                raise typer.Exit(code=1)
             raise typer.BadParameter(str(exc))
 
     # 合并输入数据
@@ -307,18 +385,22 @@ def run(
             if isinstance(parsed, dict):
                 initial_data.update(parsed)
             else:
-                console.print(
-                    "[yellow]警告:[/] --input JSON 不是对象，已忽略"
-                )
+                if not json_output:
+                    console.print("[yellow]警告:[/] --input JSON 不是对象，已忽略")
         except json.JSONDecodeError:
             if "=" in input_data:
                 k, _, v = input_data.partition("=")
                 initial_data[k.strip()] = v.strip()
             else:
-                console.print("[red]错误:[/] --input 无法解析为 JSON 或 key=value")
+                if json_output:
+                    _emit_json_error("--input 无法解析为 JSON 或 key=value")
+                else:
+                    console.print("[red]错误:[/] --input 无法解析为 JSON 或 key=value")
                 raise typer.Exit(code=1)
     if args:
-        initial_data.update(_parse_kv_pairs(args))
+        initial_data.update(_parse_kv_pairs(args, json_output=json_output))
+
+    show_progress = not json_output and console.is_terminal
 
     if not json_output:
         console.print(f"[bold]工作流:[/] {executor.workflow_name}")
@@ -331,7 +413,7 @@ def run(
     progress_started = False
     status = None
 
-    if not json_output:
+    if show_progress:
         progress = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -394,7 +476,8 @@ def run(
                 console.print(f"  [dim]{node_id}:[/] {line}")
 
     else:
-        # JSON mode: silent execution, collect logs
+        # JSON mode and redirected normal output are both non-interactive:
+        # avoid Rich's live refresh thread so pipes remain fast and stable.
         def on_node_start(node_id: str): pass
         def on_node_complete(report: dict):
             nonlocal completed_nodes
@@ -441,7 +524,7 @@ def run(
                 progress.stop()
             console.print(f"\n[red]错误:[/] 工作流执行异常: {e}")
         else:
-            console.print(json.dumps({"success": False, "error": str(e)}))
+            _emit_json_error(str(e))
         raise typer.Exit(code=1)
 
     if not json_output:
@@ -1571,11 +1654,14 @@ def workflow_list(
     from src.core import resolve_workspace
     wf_list = scan_workflows(str(resolve_workspace()))
     if not wf_list:
+        if json_output:
+            typer.echo("[]")
+            return
         console.print("没有找到已保存的工作流")
         return
 
     if json_output:
-        console.print(json.dumps(wf_list, ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(wf_list, ensure_ascii=False, indent=2))
         return
 
     table = Table(title="已保存的工作流", box=box.ROUNDED)
@@ -1740,7 +1826,10 @@ def workflow_status(workflow: str = typer.Argument(..., help="工作流路径或
     try:
         result = _workflow_status(workflow)
     except (OSError, json.JSONDecodeError, ValueError, FileNotFoundError) as exc:
-        console.print(f"[red]错误:[/] {exc}")
+        if json_output:
+            typer.echo(json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False))
+        else:
+            console.print(f"[red]错误:[/] {exc}")
         raise typer.Exit(code=1)
     if json_output:
         typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1957,7 +2046,7 @@ def workflow_describe(
     json_output: bool = typer.Option(False, "--json", "-j", help="以 JSON 格式输出"),
 ):
     """显示工作流详情"""
-    executor = _load_workflow(workflow_path)
+    executor = _load_workflow(workflow_path, None, json_output)
 
     if json_output:
         nodes_info = [
@@ -1984,7 +2073,7 @@ def workflow_describe(
             "nodes": nodes_info,
             "edges": edges_info,
         }
-        console.print(json.dumps(result, ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
     console.print(f"[bold]名称:[/] {executor.workflow_name}")
@@ -2589,6 +2678,7 @@ def serve(
 
     _init(verbose=True)
     from src.core.runtime_client import RuntimeClient
+    from src.core import __version__
 
     runtime_client = RuntimeClient()
 
@@ -2600,7 +2690,7 @@ def serve(
     api = FastAPI(
         title="Mozikit API",
         description="Mozikit 工作流自动化引擎 REST API",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -2719,4 +2809,7 @@ _register_parity_commands(app, node_app, workflow_app, env_app, config_app)
 
 def run_cli():
     """由 main.py 调用的入口函数"""
-    app()
+    try:
+        app()
+    except KeyboardInterrupt:
+        raise SystemExit(130)

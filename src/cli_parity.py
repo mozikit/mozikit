@@ -189,8 +189,22 @@ def register(app, node_app, workflow_app, env_app, config_app):
     @env_app.command("install-uv")
     @_errors
     def install_uv():
-        """使用当前 Python 的 pip 安装 UV。"""
+        """安装或确认 UV；正式 Desktop 版只使用随包提供的 UV。"""
+        from .core.uv_manager import UVManager
+
+        uv = UVManager()
+        if getattr(sys, "frozen", False):
+            bundled = uv.get_bundled_uv_path()
+            if bundled and uv._verify_uv_executable(bundled):
+                _json({"status": "bundled", "path": bundled})
+                return
+            raise ValueError("正式发行版未找到可用的内置 UV；不会在 frozen 环境调用 pip")
+
         subprocess.run([sys.executable, "-m", "pip", "install", "uv"], check=True)
+        _json({
+            "status": "installed",
+            "path": uv.get_preferred_uv_path(),
+        })
 
     script = typer.Typer(help="工作流 Playwright 脚本管理", no_args_is_help=True)
     workflow_app.add_typer(script, name="script")
