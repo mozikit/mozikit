@@ -88,11 +88,11 @@ MSI 通过 WiX `Environment` 表把安装目录加入机器 PATH：
 
 如需当前用户 PATH，可显式运行 `.\Mozikit\mozikit.exe cli install`；`cli status --json` 返回 `registered`、`not registered` 或 `broken`。
 
-## 7. 版本、Release、WinGet 和签名
+## 7. 版本、Release 和签名
 
 构建版本来源按以下顺序统一：`MOZIKIT_VERSION`、精确的 `vX.Y.Z` Git tag、构建生成的 `_version.py`、`pyproject.toml`。Release CI 从 tag 解析版本并注入 `MOZIKIT_VERSION`，因此 PyInstaller、CLI `--version`、MSI ProductVersion 和发布资产使用同一版本。
 
-当前保留已有 MSI 资产命名 `mozikit-vX.Y.Z-x64.msi`，避免破坏现有 WinGet URL；Portable 资产为 `Mozikit-Windows-x64.zip`，并发布 `SHA256SUMS`。WinGet manifest 继续使用 `Mozikit.Mozikit`、machine scope 和同一 MSI SHA256；用户数据在 LocalAppData，升级不覆盖 config、workflows、credentials、MCP registry 或执行历史。
+当前保留已有 MSI 资产命名 `mozikit-vX.Y.Z-x64.msi`，避免破坏既有下载链接；Portable 资产为 `Mozikit-Windows-x64.zip`，并发布 `SHA256SUMS`。WinGet manifest 不在本 release workflow 中生成或提交；用户数据在 LocalAppData，升级不覆盖 config、workflows、credentials、MCP registry 或执行历史。
 
 `scripts/sign_windows.ps1` 是可选 Authenticode 阶段：配置 `MOZIKIT_SIGNING_CERTIFICATE_BASE64` 和密码时依次签名/验证 GUI、CLI、bundled UV 和 MSI；未配置时构建明确输出 unsigned warning 并继续，不把证书或私钥提交到仓库。
 
@@ -115,7 +115,6 @@ checkout tag
 -> Portable ZIP + SHA256SUMS
 -> artifact
 -> GitHub Release
--> WinGet manifest/submit
 ```
 
 CLI smoke 失败会使 Windows build job 失败，因而不会进入发布 job。
@@ -124,11 +123,11 @@ CLI smoke 失败会使 Windows build job 失败，因而不会进入发布 job�
 
 `test/unit/test_desktop_distribution.py` 覆盖：launcher 委托、frozen bundled UV 查找、custom/bundled/PATH/common/no-UV 优先级、frozen `install-uv` 不运行 pip、PATH 注册纯函数、CLI `workflow list/status/run --json` 和 spec 结构。`build.py verify_build()` 另外运行冻结版 `--version`、`--help` 和 `runtime/uv.exe --version`，并验证双 EXE、官方节点和共享 `_internal`。
 
-仍需在真实 Windows 机器/CI 上人工确认：UAC/管理员权限、安装/卸载后新终端的 PATH 广播、WinGet upgrade 后用户数据、开始菜单快捷方式、GUI 首次启动、代码签名证书链以及外部节点/凭据提供者行为。单元测试和结构检查不能替代这些验收。
+仍需在真实 Windows 机器/CI 上人工确认：UAC/管理员权限、安装/卸载后新终端的 PATH 广播、MSI upgrade 后用户数据、开始菜单快捷方式、GUI 首次启动、代码签名证书链以及外部节点/凭据提供者行为。单元测试和结构检查不能替代这些验收。
 
 ## 10. 兼容风险
 
 * 旧脚本直接启动 `Mozikit.exe` 的用户需要改用 `MozikitDesktop.exe`（GUI）或 `mozikit.exe`（CLI）；运行时对子旧 frozen GUI 命令保留了过渡回退。
 * `mozikit-cli`、`mozikit-gui` Python entry point 暂不删除，避免破坏已有源码用户；正式文档只推荐 `mozikit` 和开始菜单 Mozikit。
 * MSI 仍是 perMachine，因此首次安装可能需要管理员权限；Portable ZIP 可用于无管理员权限场景。
-* signing secrets、WinGet token、GitHub release 权限和官方节点仓库访问仍需由发布环境配置；仓库不会内置这些凭据。
+* signing secrets、GitHub release 权限和官方节点仓库访问仍需由发布环境配置；仓库不会内置这些凭据。
