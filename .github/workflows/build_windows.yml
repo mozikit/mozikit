@@ -66,6 +66,7 @@ jobs:
       contents: write
     env:
       PYTHONUTF8: "1"
+      PYTHON_KEYRING_BACKEND: "keyring.backends.null.Keyring"
     timeout-minutes: 45
     defaults:
       run:
@@ -89,7 +90,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
         python -m pip install -e ".[gui]"
-        python -m pip install pyinstaller
+        python -m pip install pytest-asyncio pyinstaller
 
     - name: Run tests
       run: python -m pytest -q
