@@ -26,8 +26,7 @@ Mozikit 是一个**现代化的 Python 可视化工作流自动化工具**。它
 普通用户不需要安装 Python、pip、uv 或虚拟环境。下载安装 **Mozikit** MSI 后，开始菜单中的 **Mozikit** 会启动 GUI；安装目录同时提供同一套 Core 驱动的 `mozikit.exe` CLI。
 
 ```powershell
-# 推荐：安装后打开新终端即可使用
-winget install Mozikit.Mozikit
+# 从 GitHub Releases 下载并安装 MSI；安装完成后打开新终端即可使用
 
 mozikit --version
 mozikit --help
@@ -40,6 +39,8 @@ mozikit run .\workflows\example.json --json
 开发中的 Nightly 版本从 GitHub Releases 的 Pre-release 获取，标签格式为 `vX.Y.Z-nightly.YYYYMMDD.<sha7>`。Nightly 用于验证 `dev` 分支，不等同于稳定版；安装升级仍遵循 MSI/Portable 的既有边界。
 
 Portable ZIP（`Mozikit-Windows-x64.zip`）包含 GUI、CLI、共享运行时、官方节点和 bundled UV；解压后可直接运行 `Mozikit\mozikit.exe`，不会默认修改 PATH、开始菜单或卸载注册。需要时可从 Portable CLI 执行 `mozikit cli install` 注册当前用户 PATH。
+
+更新检查使用 GitHub Releases 的 `update-manifest.json`。MSI 安装版可以由 Mozikit 下载并启动 MSI 更新程序；Portable 可以检查更新，但不会覆盖正在运行的解压目录，需用户手动下载最新 ZIP 并替换。更新不会删除 `%LOCALAPPDATA%\Mozikit` 中的配置、凭据、工作流或执行历史。
 
 ---
 
@@ -175,7 +176,7 @@ Mozikit/
 │   ├── download_uv.ps1            # 下载并校验固定版本 bundled UV
 │   ├── build_msi.ps1             #   MSI 安装包
 │   ├── sign_windows.ps1           #   可选 Authenticode 签名
-│   └── generate_winget_manifest.ps1
+│   └── generate_update_manifest.py
 │
 └── wix/
     └── main.wxs                  # WiX 安装模板
@@ -187,7 +188,7 @@ Mozikit/
 
 ### 普通用户（Windows）
 
-1. 从 GitHub Releases 下载 `mozikit-vX.Y.Z-x64.msi`，或执行 `winget install Mozikit.Mozikit`。
+1. 从 GitHub Releases 下载 `mozikit-vX.Y.Z-x64.msi`。
 2. 安装完成后从开始菜单启动 **Mozikit**。
 3. 新开终端后执行 `mozikit --version` 验证 CLI。
 
@@ -208,6 +209,21 @@ mozikit run .\workflows\demo.json --json
 `--json` 模式只把机器可读结果写入 stdout；日志和诊断信息写入 stderr。CLI 不启动 Qt、不弹 GUI，并返回可用于脚本的退出码。
 
 `mozikit cli status --json` 的 `source` 会区分 `installer`（MSI machine PATH）、`user`（Portable 当前用户 PATH）和 `installer+user`；Portable 注册不会重复添加 MSI 已管理的目录，`cli uninstall` 只移除 user PATH。
+
+### 更新 Mozikit Desktop
+
+```powershell
+# 只检查当前频道（当前 nightly 会默认检查 nightly）
+mozikit update --check --json
+
+# 显式检查并安装 nightly；--yes 是脚本/Agent 的明确安装确认
+mozikit update --yes --channel nightly --json
+
+# 查看上次检查或安装交接状态，不访问网络
+mozikit update --status --json
+```
+
+更新命令的 JSON stdout 只包含一个机器可读文档。`0` 表示检查成功或已是最新，`1` 表示错误/当前安装方式不支持自动安装，`2` 表示参数或确认不完整，`3` 表示 MSI 已成功交给 Windows Installer。安装版更新完成后需要重新打开 Mozikit；Portable 发行版请使用最新 ZIP 手动替换。
 
 ### Developer 环境
 

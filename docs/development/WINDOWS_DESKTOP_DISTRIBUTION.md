@@ -67,7 +67,7 @@ Mozikit/
 
 ## 5. MSI、PATH 和安装范围
 
-当前保留 MSI 的 `perMachine`、既有 `UpgradeCode` 和现有 WiX/WinGet 自动化，理由是改变 Scope 会影响已发布产品的升级路径、机器级安装位置和 WinGet manifest。WiX 产品显示为 `Mozikit`，开始菜单快捷方式也显示 `Mozikit`，目标是 `MozikitDesktop.exe`。
+当前保留 MSI 的 `perMachine` 和既有 `UpgradeCode`，理由是改变 Scope 会影响已发布产品的升级路径和机器级安装位置。当前 release 不提交 WinGet manifest，也没有 WinGet 提交流程；WiX 产品显示为 `Mozikit`，开始菜单快捷方式也显示 `Mozikit`，目标是 `MozikitDesktop.exe`。
 
 MSI 通过 WiX `Environment` 表把安装目录加入机器 PATH：
 
@@ -96,7 +96,17 @@ MSI 通过 WiX `Environment` 表把安装目录加入机器 PATH：
 
 Nightly 使用 `vX.Y.Z-nightly.YYYYMMDD.<sha7>` 标签，从 `dev` 当前精确 commit 构建 GitHub pre-release。Nightly 只在同一 commit 的 Windows CI 成功后发布，并在该 commit 已有 nightly tag 时跳过，避免重复发布。稳定版使用 `vX.Y.Z` 标签；两者共用同一个 Windows 构建 workflow。
 
-每个发布同时生成 `update-manifest.json`。它是未来 updater 的下载与校验发现契约，不会自行执行更新：当前升级仍由 MSI 的稳定 `UpgradeCode` 管理，保留 `%LOCALAPPDATA%\Mozikit`；Portable ZIP 仍由用户手动替换安装目录。Nightly MSI/Portable 的真实升级行为仍需在 Windows 验收环境确认。
+每个发布同时生成 `update-manifest.json`，其中包含 `windows-x64` 目标、MSI/Portable 的 SHA256/大小和 nightly `build_sequence`。`src/core/update_manager.py` 是 GUI/CLI 共用的更新 Core：通过 GitHub Releases 选择 stable/nightly、校验 manifest、下载到 `%LOCALAPPDATA%\Mozikit\updates` 并验证 SHA256。MSI 安装版通过 detached `msiexec` 交接更新，仍由 MSI 的稳定 `UpgradeCode` 保留用户数据；Portable 只检查更新，不覆盖正在运行的解压目录，必须由用户手动替换。
+
+CLI 入口为：
+
+```powershell
+mozikit update --check --json
+mozikit update --yes --channel nightly --json
+mozikit update --status --json
+```
+
+GUI 的“更新”入口调用同一个 `UpdateManager`，不会启动 Qt 以外的第二套更新实现。安装完成后用户数据仍保留在 `%LOCALAPPDATA%\Mozikit`；MSI/Portable 的真实安装、升级和卸载生命周期仍需在干净 Windows 环境验收。
 
 `scripts/sign_windows.ps1` 是可选 Authenticode 阶段：配置 `MOZIKIT_SIGNING_CERTIFICATE_BASE64` 和密码时依次签名/验证 GUI、CLI、bundled UV 和 MSI；未配置时构建明确输出 unsigned warning 并继续，不把证书或私钥提交到仓库。
 
@@ -118,6 +128,7 @@ checkout tag
 -> 可选 MSI 签名
 -> Portable ZIP + SHA256SUMS
 -> update-manifest.json
+-> 更新 manifest 构建序号与下载校验契约
 -> artifact
 -> GitHub Release
 ```
@@ -126,9 +137,9 @@ CLI smoke 失败会使 Windows build job 失败，因而不会进入发布 job�
 
 ## 9. 自动化覆盖和人工验收边界
 
-`test/unit/test_desktop_distribution.py` 覆盖：launcher 委托、frozen bundled UV 查找、custom/bundled/PATH/common/no-UV 优先级、frozen `install-uv` 不运行 pip、PATH 注册纯函数、CLI `workflow list/status/run --json` 和 spec 结构。`build.py verify_build()` 另外运行冻结版 `--version`、`--help` 和 `runtime/uv.exe --version`，并验证双 EXE、官方节点和共享 `_internal`。
+`test/unit/test_desktop_distribution.py` 覆盖：launcher 委托、frozen bundled UV 查找、custom/bundled/PATH/common/no-UV 优先级、frozen `install-uv` 不运行 pip、PATH 注册纯函数、CLI `workflow list/status/run --json` 和 spec 结构。`test/unit/test_update_manager.py` 覆盖 stable/nightly 选择、build sequence 排序、manifest 冲突、下载 SHA256 校验、MSI detached handoff 和 Portable 阻断；`test/unit/test_cli_update.py` 覆盖 JSON 输出、确认参数和退出码。`build.py verify_build()` 另外运行冻结版 `--version`、`--help` 和 `runtime/uv.exe --version`，并验证双 EXE、官方节点和共享 `_internal`。
 
-仍需在真实 Windows 机器/CI 上人工确认：UAC/管理员权限、安装/卸载后新终端的 PATH 广播、MSI upgrade 后用户数据、开始菜单快捷方式、GUI 首次启动、代码签名证书链以及外部节点/凭据提供者行为。单元测试和结构检查不能替代这些验收。
+仍需在真实 Windows 机器/CI 上人工确认：UAC/管理员权限、安装/卸载后新终端的 PATH 广播、MSI upgrade 后用户数据、`mozikit update --check/--yes` 的真实下载和 MSI 交接、Portable 手动替换、开始菜单快捷方式、GUI 首次启动、代码签名证书链以及外部节点/凭据提供者行为。单元测试和结构检查不能替代这些验收。
 
 ## 10. 兼容风险
 

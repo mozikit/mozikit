@@ -11,6 +11,8 @@ def test_windows_release_workflow_supports_reusable_prereleases_and_manifest():
     assert "prerelease:" in workflow
     assert "target_commitish:" in workflow
     assert "scripts/generate_update_manifest.py" in workflow
+    assert "--build-sequence" in workflow
+    assert "update --status --json" in workflow
     assert "release/update-manifest.json" in workflow
     assert "submit_winget" not in workflow
     assert "WINGET_TOKEN" not in workflow

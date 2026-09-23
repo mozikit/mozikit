@@ -50,6 +50,8 @@ hiddenimports = [
     "src.views.node_browser",
     "src.views.node_properties",
     "src.dialogs.settings_dialog",
+    "src.dialogs.update_dialog",
+    "src.core.update_manager",
     "src.core.workflow_executor",
     "src.core.uv_manager",
     "src.core.node_base",

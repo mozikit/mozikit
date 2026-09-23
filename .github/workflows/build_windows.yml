@@ -174,6 +174,8 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw "mozikit --version failed" }
         & .\dist\Mozikit\mozikit.exe --help | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "mozikit --help failed" }
+        & .\dist\Mozikit\mozikit.exe update --status --json | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "mozikit update --status failed" }
         & .\dist\Mozikit\runtime\uv.exe --version
         if ($LASTEXITCODE -ne 0) { throw "bundled uv --version failed" }
         foreach ($path in @(
@@ -200,6 +202,7 @@ jobs:
         MOZIKIT_RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
         MOZIKIT_RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
         MOZIKIT_RELEASE_SOURCE_REF: ${{ steps.release_meta.outputs.source_ref }}
+        MOZIKIT_RELEASE_BUILD_SEQUENCE: ${{ github.run_number }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         python scripts/generate_update_manifest.py `
@@ -207,7 +210,8 @@ jobs:
           --tag $env:MOZIKIT_RELEASE_TAG `
           --version $env:MOZIKIT_RELEASE_VERSION `
           --source-ref $env:MOZIKIT_RELEASE_SOURCE_REF `
-          --repository $env:GITHUB_REPOSITORY
+          --repository $env:GITHUB_REPOSITORY `
+          --build-sequence ([int]$env:MOZIKIT_RELEASE_BUILD_SEQUENCE)
 
     - name: Calculate SHA256SUMS
       shell: pwsh

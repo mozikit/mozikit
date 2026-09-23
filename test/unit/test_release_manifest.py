@@ -18,10 +18,13 @@ def test_nightly_manifest_describes_assets_and_upgrade_boundary(tmp_path: Path):
         version="0.2.6-nightly.20260923.31ef182",
         source_ref="3" * 40,
         repository="mozikit/mozikit",
+        build_sequence=42,
     )
 
     assert manifest["schema"] == 1
     assert manifest["channel"] == "nightly"
+    assert manifest["platform"] == "windows-x64"
+    assert manifest["build_sequence"] == 42
     assert manifest["source_ref"] == "3" * 40
     assert manifest["upgrade"]["user_data_dir"] == "%LOCALAPPDATA%\\Mozikit"
     assert {asset["kind"] for asset in manifest["assets"]} == {"msi", "portable"}
@@ -41,3 +44,4 @@ def test_stable_manifest_uses_stable_channel(tmp_path: Path):
     )
 
     assert manifest["channel"] == "stable"
+    assert manifest["platform"] == "windows-x64"

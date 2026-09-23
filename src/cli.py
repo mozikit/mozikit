@@ -83,6 +83,14 @@ cli_app = typer.Typer(help="管理 mozikit CLI 注册", no_args_is_help=True)
 app.add_typer(cli_app, name="cli")
 
 
+update_app = typer.Typer(
+    help="检查并安装 Mozikit Desktop 更新",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+app.add_typer(update_app, name="update")
+
+
 def _print_cli_registration_result(result: dict, json_output: bool) -> None:
     if json_output:
         typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
@@ -135,6 +143,164 @@ def cli_uninstall(
         typer.echo(f"错误: {exc}", err=True)
         raise typer.Exit(code=1)
     _print_cli_registration_result(result, json_output)
+
+
+def _emit_update_result(result: dict, json_output: bool) -> None:
+    """Emit one JSON document in machine mode, without Rich decorations."""
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    status = result.get("status", "unknown")
+    current = result.get("current_version") or "-"
+    latest = result.get("latest_version") or "-"
+    console.print(f"更新状态: {status}")
+    console.print(f"当前版本: {current}")
+    console.print(f"最新版本: {latest}")
+    installation = result.get("installation") or {}
+    if installation.get("kind"):
+        console.print(f"安装方式: {installation['kind']}")
+    if result.get("message"):
+        console.print(result["message"])
+    error = result.get("error")
+    if error:
+        console.print(f"错误 [{error.get('code', 'unknown')}]: {error.get('message', '')}")
+    downloaded = result.get("downloaded_path")
+    if downloaded:
+        console.print(f"更新文件: {downloaded}")
+
+
+def _update_error_result(
+    error: Exception,
+    *,
+    channel: str | None = None,
+    current_version: str | None = None,
+) -> dict:
+    from src.core.update_manager import UpdateError, UpdateManager
+
+    if isinstance(error, UpdateError):
+        update_error = error
+    else:
+        update_error = UpdateError("error", str(error))
+    manager = UpdateManager()
+    return {
+        "status": "error",
+        "available": False,
+        "channel": channel,
+        "current_version": current_version or manager.current_version,
+        "latest_version": None,
+        "can_install": False,
+        "downloaded_path": None,
+        "message": None,
+        "error": update_error.to_dict(),
+    }
+
+
+def _update_result_exit_code(result: dict) -> int:
+    if result.get("status") == "pending_install":
+        # The installer has been detached; callers can distinguish this from
+        # a no-op while still treating the handoff as successful.
+        return 3
+    if result.get("status") in {"error", "blocked"}:
+        return 1
+    return 0
+
+
+@update_app.callback(invoke_without_command=True)
+def update_command(
+    check: bool = typer.Option(False, "--check", help="只检查更新，不下载或安装"),
+    status: bool = typer.Option(False, "--status", help="显示上次更新状态，不访问网络"),
+    channel: Optional[str] = typer.Option(
+        None, "--channel", help="更新频道：stable 或 nightly（默认跟随当前版本）"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认下载并启动安装程序"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="以 JSON 格式输出"),
+):
+    """检查、下载并安装 Mozikit Desktop 更新。
+
+    ``--check`` 和 ``--status`` 永远不会启动安装程序；真正安装更新需要
+    ``--yes``，以便脚本和 Agent 明确表达安装意图。
+    """
+    from src.core.update_manager import UpdateError, UpdateManager, UpdateResult
+
+    if check and status:
+        error = UpdateError("invalid_arguments", "--check 与 --status 不能同时使用")
+        result = _update_error_result(error, channel=channel)
+        _emit_update_result(result, json_output)
+        raise typer.Exit(code=2)
+    if yes and (check or status):
+        error = UpdateError("invalid_arguments", "--yes 不能与 --check 或 --status 同时使用")
+        result = _update_error_result(error, channel=channel)
+        _emit_update_result(result, json_output)
+        raise typer.Exit(code=2)
+
+    manager = UpdateManager()
+    if status:
+        result = manager.status()
+        _emit_update_result(result, json_output)
+        return
+
+    try:
+        result = manager.check(channel=channel)
+    except Exception as exc:
+        result = _update_error_result(exc, channel=channel)
+        _emit_update_result(result, json_output)
+        raise typer.Exit(code=1)
+
+    result_dict = result.to_dict()
+    if check or not result.available:
+        _emit_update_result(result_dict, json_output)
+        if not result.available and result.status != "up_to_date":
+            raise typer.Exit(code=1)
+        return
+
+    if not result.can_install:
+        blocked = UpdateResult(
+            status="blocked",
+            channel=result.channel,
+            current_version=result.current_version,
+            latest_version=result.latest_version,
+            candidate=result.candidate,
+            installation=result.installation,
+            can_install=False,
+            message=result.message,
+            error=UpdateError("unsupported", result.message or "当前安装方式不支持自动更新"),
+            checked_at=result.checked_at,
+        )
+        result_dict = blocked.to_dict()
+        _emit_update_result(result_dict, json_output)
+        raise typer.Exit(code=1)
+
+    if not yes:
+        if json_output:
+            blocked = UpdateResult(
+                status="blocked",
+                channel=result.channel,
+                current_version=result.current_version,
+                latest_version=result.latest_version,
+                candidate=result.candidate,
+                installation=result.installation,
+                can_install=result.can_install,
+                message="请使用 --yes 明确确认安装更新。",
+                error=UpdateError("confirmation_required", "请使用 --yes 明确确认安装更新。"),
+                checked_at=result.checked_at,
+            )
+            _emit_update_result(blocked.to_dict(), True)
+            raise typer.Exit(code=2)
+        _emit_update_result(result_dict, False)
+        if not typer.confirm("下载并启动 MSI 安装程序？"):
+            raise typer.Exit(code=0)
+
+    try:
+        installed = manager.download_and_install(result, quiet=json_output)
+    except Exception as exc:
+        result = _update_error_result(
+            exc, channel=result.channel, current_version=result.current_version
+        )
+        _emit_update_result(result, json_output)
+        raise typer.Exit(code=1)
+    _emit_update_result(installed.to_dict(), json_output)
+    raise typer.Exit(code=_update_result_exit_code(installed.to_dict()))
 
 
 @runtime_app.command("daemon")

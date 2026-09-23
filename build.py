@@ -241,7 +241,7 @@ def verify_build(run_smoke: bool = True) -> bool:
             )
             return False
 
-        for args in (["--help"],):
+        for args in (["--help"], ["update", "--status", "--json"]):
             result = _run_smoke(DIST_PATH / "mozikit.exe", list(args), env)
             if result.returncode != 0:
                 print(f"[ERROR] CLI smoke test failed ({args}): {result.stderr or result.stdout}")

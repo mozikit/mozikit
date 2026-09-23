@@ -25,7 +25,9 @@ from src.core.config_manager import ConfigManager
 from src.core.log_manager import get_logger
 from src.core.theme_manager import ThemeManager
 from src.core.runtime_client import RuntimeClient
+from src.core.update_manager import UpdateError, UpdateManager
 from src.dialogs.settings_dialog import SettingsDialog
+from src.dialogs.update_dialog import UpdateDialog
 from src.views.execution_results_widget import ExecutionResultsWidget
 from src.views.node_browser import NodeBrowserWidget
 from src.views.node_properties import NodePropertiesWidget
@@ -112,6 +114,13 @@ class MainWindow(QMainWindow):
             self._load_svg_icon("assets/icons/settings.svg"), "设置"
         )
         action_settings.triggered.connect(self._open_settings)
+
+        # 更新检查使用与 CLI 相同的 UpdateManager，避免 GUI 维护另一套
+        # release selection / manifest verification 逻辑。
+        action_update = toolbar.addAction(
+            self._load_svg_icon("assets/icons/settings.svg"), "更新"
+        )
+        action_update.triggered.connect(self._open_updates)
 
         # 中心区域
         self.tabs = QTabWidget()
@@ -906,6 +915,23 @@ class MainWindow(QMainWindow):
         """Open settings dialog"""
         dialog = SettingsDialog(self)
         dialog.exec()
+
+    def _open_updates(self):
+        """检查 Mozikit Desktop 更新。"""
+        dialog = UpdateDialog(self)
+        dialog.exec()
+        if dialog.install_ready_path and dialog.install_ready_candidate:
+            # 先完成主窗口正常保存/退出，再把已校验的 MSI 交给 Windows
+            # Installer，避免安装程序与正在运行的 Desktop 文件发生锁竞争。
+            self._quitting = True
+            if self.close():
+                try:
+                    UpdateManager().install_candidate(
+                        dialog.install_ready_candidate,
+                        Path(dialog.install_ready_path),
+                    )
+                except UpdateError:
+                    logger.exception("Failed to launch Mozikit update installer")
 
     def _setup_system_tray(self):
         """初始化系统托盘图标和菜单"""

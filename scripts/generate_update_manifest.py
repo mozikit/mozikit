@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the channel-aware release metadata consumed by future updaters.
+"""Generate the channel-aware release metadata consumed by Mozikit updaters.
 
-The manifest deliberately describes downloadable artifacts and the existing
-Mozikit upgrade boundary.  It does not perform an update itself: MSI remains
-installer-managed and Portable ZIP remains user-managed.
+The manifest describes downloadable artifacts and the existing Mozikit
+upgrade boundary.  MSI remains installer-managed and Portable ZIP remains
+user-managed, while the shared updater handles discovery and verification.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ def build_manifest(
     version: str,
     source_ref: str,
     repository: str,
+    build_sequence: int | None = None,
+    platform: str = "windows-x64",
 ) -> dict:
     artifacts = sorted(
         path
@@ -44,6 +46,7 @@ def build_manifest(
         {
             "name": path.name,
             "kind": "msi" if path.suffix.lower() == ".msi" else "portable",
+            "platform": platform,
             "url": (
                 f"https://github.com/{repository}/releases/download/"
                 f"{quote(tag, safe='')}/{quote(path.name, safe='')}"
@@ -54,9 +57,10 @@ def build_manifest(
         for path in artifacts
     ]
 
-    return {
+    manifest = {
         "schema": 1,
         "minimum_updater": 1,
+        "platform": platform,
         "channel": channel,
         "tag": tag,
         "version": version,
@@ -69,6 +73,11 @@ def build_manifest(
             "portable_requires_manual_replace": True,
         },
     }
+    if build_sequence is not None:
+        if build_sequence < 0:
+            raise ValueError("build_sequence must be non-negative")
+        manifest["build_sequence"] = build_sequence
+    return manifest
 
 
 def main() -> None:
@@ -78,6 +87,8 @@ def main() -> None:
     parser.add_argument("--version", required=True)
     parser.add_argument("--source-ref", required=True)
     parser.add_argument("--repository", required=True)
+    parser.add_argument("--build-sequence", type=int)
+    parser.add_argument("--platform", default="windows-x64")
     args = parser.parse_args()
 
     manifest = build_manifest(
@@ -86,6 +97,8 @@ def main() -> None:
         version=args.version,
         source_ref=args.source_ref,
         repository=args.repository,
+        build_sequence=args.build_sequence,
+        platform=args.platform,
     )
     output = args.release_dir / "update-manifest.json"
     output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
