@@ -701,17 +701,10 @@ class OverviewWidget(QWidget):
         if dev_path.exists():
             return str(dev_path)
 
-        if hasattr(sys, "_MEIPASS"):
-            base_path = Path(sys._MEIPASS)
-            resource_path = base_path / relative_path
-        else:
-            base_path = Path(sys.executable).parent
-            resource_path = base_path / relative_path
-
-            if not resource_path.exists():
-                internal_path = base_path.parent / "_internal" / relative_path
-                if internal_path.exists():
-                    resource_path = internal_path
+        base_path = Path(sys.executable).parent
+        resource_path = base_path / relative_path
+        if not resource_path.exists() and hasattr(sys, "_MEIPASS"):
+            resource_path = Path(sys._MEIPASS) / relative_path
 
         if resource_path.exists():
             return str(resource_path)

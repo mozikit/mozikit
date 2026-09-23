@@ -4,7 +4,7 @@ import sys
 # 已知 CLI 子命令（与 src/cli.py 保持一致）
 _CLI_COMMANDS = {
     "run", "schedule", "env", "node", "config", "workflow", "runtime",
-    "serve", "help",
+    "cli", "serve", "help",
 }
 
 
@@ -14,7 +14,7 @@ def _is_cli_mode() -> bool:
     if "--cli" in sys.argv or "--run" in sys.argv:
         return True
     # 帮助请求
-    if "--help" in sys.argv or "-h" in sys.argv:
+    if "--help" in sys.argv or "-h" in sys.argv or "--version" in sys.argv:
         return True
     # 第一个非 Qt 选项参数是已知子命令
     for arg in sys.argv[1:]:

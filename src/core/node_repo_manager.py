@@ -242,9 +242,9 @@ class NodeRepoManager:
     def _find_bundled_dir() -> Path:
         if getattr(sys, "frozen", False):
             base = Path(sys.executable).parent
-            bundled = base / "official_nodes"
-            if bundled.exists():
-                return bundled
+            for bundled in (base / "official_nodes", base / "_internal" / "official_nodes"):
+                if bundled.exists() and (bundled / "manifest.json").exists():
+                    return bundled
         for candidate in [
             Path("official_nodes"),
             Path(__file__).parent.parent.parent / "official_nodes",

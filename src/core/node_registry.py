@@ -5,6 +5,7 @@
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -84,7 +85,12 @@ class NodeRegistry:
 
     def __init__(self):
         self._nodes: Dict[str, NodeDefinition] = {}
-        self._user_data_dir = Path("user_data")
+        if getattr(sys, "frozen", False):
+            from .runtime_paths import get_app_data_dir
+
+            self._user_data_dir = get_app_data_dir() / "user_data"
+        else:
+            self._user_data_dir = Path("user_data")
         self._ensure_dirs()
         self._migrate_legacy_nodes()
         self._load_official_nodes()

@@ -31,6 +31,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!Mozikit.spec
 
 # Installer logs
 pip-log.txt
@@ -243,3 +244,4 @@ scripts/node_n*.py
 tools/*
 # 官方节点快照同步脚本（构建必需，随仓库维护）
 !tools/sync_official_nodes.py
+!tools/bundled_uv.json

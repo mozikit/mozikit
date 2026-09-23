@@ -110,7 +110,17 @@ class RuntimeClient:
 
     def _daemon_command(self):
         if getattr(sys, "frozen", False):
-            return [sys.executable, "runtime", "daemon"]
+            cli_executable = Path(sys.executable).resolve().parent / (
+                "mozikit.exe" if os.name == "nt" else "mozikit"
+            )
+            if cli_executable.is_file():
+                return [str(cli_executable), "runtime", "daemon"]
+            # Keep legacy frozen installations usable during an in-place
+            # transition. New Desktop distributions always have the sibling
+            # CLI and use the branch above.
+            if Path(sys.executable).name == "Mozikit.exe":
+                return [sys.executable, "runtime", "daemon"]
+            return [str(cli_executable), "runtime", "daemon"]
         return [sys.executable, "-m", "src.core.runtime_daemon"]
 
     def _startup_error(self) -> str:
@@ -152,7 +162,11 @@ class RuntimeClient:
         try:
             process = subprocess.Popen(
                 self._daemon_command(),
-                cwd=str(Path(__file__).resolve().parents[2]),
+                cwd=(
+                    str(Path(sys.executable).resolve().parent)
+                    if getattr(sys, "frozen", False)
+                    else str(Path(__file__).resolve().parents[2])
+                ),
                 **kwargs,
             )
         except Exception as exc:

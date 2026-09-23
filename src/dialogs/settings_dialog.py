@@ -349,6 +349,13 @@ class SettingsDialog(QDialog):
         self.install_ps_btn.clicked.connect(self._install_uv_powershell)
         self.install_pip_btn = QPushButton("pip 安装")
         self.install_pip_btn.clicked.connect(self._install_uv_pip)
+        if getattr(sys, "frozen", False):
+            # The Desktop distribution owns a verified runtime/uv.exe.  Do
+            # not expose installers that could try to execute the GUI EXE as
+            # ``sys.executable -m pip`` on an installed machine.
+            info_label.setText("Mozikit Desktop 已内置 UV，无需额外安装。")
+            self.install_ps_btn.setVisible(False)
+            self.install_pip_btn.setVisible(False)
         install_btn_layout.addWidget(self.install_ps_btn)
         install_btn_layout.addWidget(self.install_pip_btn)
         install_btn_layout.addStretch()
@@ -1171,6 +1178,9 @@ class SettingsDialog(QDialog):
 
     def _install_uv_powershell(self):
         """Install uv using PowerShell"""
+        if getattr(sys, "frozen", False):
+            QMessageBox.information(self, "UV 已内置", "当前 Mozikit Desktop 已包含 bundled UV，无需安装。")
+            return
         if sys.platform != "win32":
             QMessageBox.warning(self, "不支持", "此安装方法仅支持 Windows 系统。")
             return
@@ -1229,6 +1239,9 @@ class SettingsDialog(QDialog):
 
     def _install_uv_pip(self):
         """Install uv using pip"""
+        if getattr(sys, "frozen", False):
+            QMessageBox.information(self, "UV 已内置", "当前 Mozikit Desktop 已包含 bundled UV，无需安装。")
+            return
         reply = QMessageBox.question(
             self,
             "确认安装",

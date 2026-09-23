@@ -5,7 +5,17 @@
 
 import sys
 import os
-from build import create_spec_file, clean_build, build_executable, verify_build, create_portable_package
+from build import (
+    build_executable,
+    check_requirements,
+    clean_build,
+    create_portable_package,
+    create_release_package,
+    create_spec_file,
+    generate_version_file,
+    sync_official_nodes_snapshot,
+    verify_build,
+)
 
 def auto_build():
     """自动构建（不询问）"""
@@ -19,21 +29,35 @@ def auto_build():
         sys.exit(1)
     
     try:
-        # 1. 清理之前的构建
+        # 1. 检查构建环境并解析统一版本
+        check_requirements()
+        generate_version_file()
+
+        # 2. 同步官方节点快照；正式产物不得无节点继续发布
+        if not os.environ.get("MOZIKIT_SKIP_OFFICIAL_NODES_SYNC"):
+            if not sync_official_nodes_snapshot() and not os.path.exists(
+                os.path.join("official_nodes", "manifest.json")
+            ):
+                raise RuntimeError("Official nodes snapshot is required for a Desktop build")
+        elif not os.path.exists(os.path.join("official_nodes", "manifest.json")):
+            raise RuntimeError("Official nodes snapshot is required for a Desktop build")
+
+        # 3. 清理之前的构建（保留 build/bundled_uv/uv.exe）
         clean_build()
         
-        # 2. 创建 spec 文件
+        # 4. 验证共享 spec
         create_spec_file()
         
-        # 3. 构建可执行文件
+        # 5. 构建可执行文件
         if not build_executable():
             sys.exit(1)
         
-        # 4. 验证构建
+        # 6. 验证目录、CLI、bundled UV 和官方节点
         if not verify_build():
             sys.exit(1)
         
-        # 5. 创建便携版本
+        # 7. 创建 Portable ZIP 和本地便利目录
+        create_release_package()
         create_portable_package()
         
         print("\n" + "=" * 50)

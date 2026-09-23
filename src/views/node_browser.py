@@ -546,8 +546,10 @@ class NodeBrowserWidget(QWidget):
         self.update_btn.setText("⠋ 检查中...")
         self._spinner_timer.start(80)
 
+        # NodeRegistry resolves the same per-user location used by CLI and
+        # GUI in the frozen Desktop build; never write updates beside the EXE.
         self._update_worker = NodeUpdateWorker(
-            str(Path("user_data")), token, parent=self
+            str(get_registry()._user_data_dir), token, parent=self
         )
         self._update_worker.progress.connect(self._on_update_progress)
         self._update_worker.step_result.connect(self._on_step_result)

@@ -10,11 +10,10 @@ def _prepare_runtime_workdir() -> None:
     if not getattr(sys, "frozen", False):
         return
 
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        appdata = str(Path.home() / "AppData" / "Roaming")
+    from src.core.runtime_paths import get_app_data_dir, migrate_legacy_app_data
 
-    runtime_root = Path(appdata) / "Mozikit"
+    migrate_legacy_app_data()
+    runtime_root = get_app_data_dir()
     runtime_root.mkdir(parents=True, exist_ok=True)
     os.chdir(runtime_root)
 

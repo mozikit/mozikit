@@ -823,20 +823,12 @@ class MainWindow(QMainWindow):
         if dev_path.exists():
             return str(dev_path)
 
-        # 打包环境（PyInstaller）
-        if hasattr(sys, "_MEIPASS"):
-            base_path = Path(sys._MEIPASS)
-            resource_path = base_path / relative_path
-        else:
-            # 如果是其他情况，尝试相对于可执行文件
-            base_path = Path(sys.executable).parent
-            resource_path = base_path / relative_path
-
-            # 如果在_internal目录中，需要调整路径
-            if not resource_path.exists():
-                internal_path = base_path.parent / "_internal" / relative_path
-                if internal_path.exists():
-                    resource_path = internal_path
+        # 打包环境（PyInstaller）：用户可见资源位于 EXE 旁，
+        # 兼容旧布局和 PyInstaller 的 _internal 回退路径。
+        base_path = Path(sys.executable).parent
+        resource_path = base_path / relative_path
+        if not resource_path.exists() and hasattr(sys, "_MEIPASS"):
+            resource_path = Path(sys._MEIPASS) / relative_path
 
         # 如果资源文件存在，返回路径
         if resource_path.exists():

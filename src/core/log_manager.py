@@ -3,7 +3,6 @@
 提供统一的日志记录功能，支持同时输出到控制台和文件
 """
 import logging
-import os
 import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -23,12 +22,11 @@ RETENTION_DAYS = 30
 def _get_log_dir() -> Path:
     """获取日志文件存储目录"""
     if getattr(sys, "frozen", False):
-        appdata = os.environ.get("APPDATA")
-        if not appdata:
-            appdata = str(Path.home() / "AppData" / "Roaming")
-        log_dir = Path(appdata) / "Mozikit" / "logs"
+        from src.core.runtime_paths import get_app_data_dir
+
+        log_dir = get_app_data_dir() / "logs"
     else:
-        log_dir = Path(os.getcwd()) / "logs"
+        log_dir = Path.cwd() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 

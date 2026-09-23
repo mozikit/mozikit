@@ -1,470 +1,319 @@
 #!/usr/bin/env python3
+"""Build the Mozikit Desktop Windows directory distribution.
+
+The PyInstaller spec contains the multi-program ``MERGE``/``COLLECT`` graph.
+This module owns the reproducible version, snapshot, artifact, and smoke-test
+steps around that spec.
 """
-PyInstaller Build Script
-Used to package Mozikit into an executable
-"""
+
+from __future__ import annotations
 
 import os
-import sys
+import re
 import shutil
 import subprocess
+import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
-def get_version_from_git():
-    """从 git tag 获取版本号"""
+
+ROOT_DIR = Path(__file__).resolve().parent
+SPEC_PATH = ROOT_DIR / "Mozikit.spec"
+PYINSTALLER_WORKPATH = ROOT_DIR / "build" / "pyinstaller"
+BUNDLED_UV_PATH = ROOT_DIR / "build" / "bundled_uv" / "uv.exe"
+DIST_PATH = ROOT_DIR / "dist" / "Mozikit"
+
+
+def _read_project_version() -> str:
+    project_file = ROOT_DIR / "pyproject.toml"
+    match = re.search(
+        r"^\s*version\s*=\s*[\"']([^\"']+)[\"']",
+        project_file.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if not match:
+        raise RuntimeError("pyproject.toml does not define project.version")
+    return match.group(1)
+
+
+def get_version_from_git() -> str:
+    """Resolve a release version without ever using a commit SHA as a version."""
+    env_version = os.environ.get("MOZIKIT_VERSION", "").strip()
+    if env_version:
+        return env_version.lstrip("v")
+
     try:
         result = subprocess.run(
-            ["git", "describe", "--tags", "--always"],
+            ["git", "describe", "--tags", "--exact-match", "--match", "v*"],
             capture_output=True,
             text=True,
-            cwd=Path("."),
+            cwd=ROOT_DIR,
+            check=False,
         )
         if result.returncode == 0:
-            version = result.stdout.strip()
-            if version.startswith("v"):
-                version = version[1:]
-            return version
-    except Exception:
+            version = result.stdout.strip().lstrip("v")
+            if re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version):
+                return version
+    except OSError:
         pass
-    return "0.0.0"
+    return _read_project_version()
 
 
-def generate_version_file():
-    """生成版本号文件供打包后使用"""
-    version = get_version_from_git()
-    version_file = Path("src/core/_version.py")
-
-    content = f'''# Auto-generated version file
-# Do not edit manually
-__version__ = "{version}"
-'''
-
-    with open(version_file, "w", encoding="utf-8") as f:
-        f.write(content)
-
-    print(f"[OK] Version file generated: {version_file} (version: {version})")
+def generate_version_file(version: str | None = None) -> str:
+    """Write the version embedded in both frozen launchers."""
+    version = version or get_version_from_git()
+    version_file = ROOT_DIR / "src" / "core" / "_version.py"
+    version_file.write_text(
+        "# Auto-generated version file\n"
+        "# Do not edit manually\n"
+        f'__version__ = "{version}"\n',
+        encoding="utf-8",
+    )
+    print(f"[OK] Version resolved: {version}")
     return version
 
 
-def check_requirements():
-    """Check necessary dependencies"""
+def check_requirements() -> None:
+    """Check build-only dependencies in the normal Python build environment."""
     print("Checking build dependencies...")
-
     try:
-        import PyInstaller
-        print("[OK] PyInstaller is installed")
-    except ImportError:
-        print("[ERROR] PyInstaller not installed, installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
-        print("[OK] PyInstaller installed successfully")
-
+        import PyInstaller  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError("PyInstaller is required; install it in the build environment") from exc
     try:
-        import PIL
-        print("[OK] Pillow is installed")
-    except ImportError:
-        print("[ERROR] Pillow not installed, installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
-        print("[OK] Pillow installed successfully")
+        import PIL  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required; install it in the build environment") from exc
+    try:
+        import PySide6  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError("PySide6 is required for the Desktop build; install the [gui] extra") from exc
+    print("[OK] PyInstaller, Pillow, and PySide6 are available")
 
-def sync_official_nodes_snapshot():
-    """打包前同步官方节点快照（目录缺失时不再静默跳过）"""
-    print("Syncing official nodes snapshot...")
-    script = Path("tools") / "sync_official_nodes.py"
+
+def sync_official_nodes_snapshot() -> bool:
+    """Refresh the bundled official-node snapshot before packaging."""
+    script = ROOT_DIR / "tools" / "sync_official_nodes.py"
     if not script.exists():
-        print(f"[ERROR] 同步脚本不存在: {script}")
+        print(f"[ERROR] Official-node sync script is missing: {script}")
         return False
     try:
-        subprocess.check_call([sys.executable, str(script)])
+        subprocess.check_call([sys.executable, str(script)], cwd=ROOT_DIR)
         print("[OK] Official nodes snapshot synced")
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] 官方节点快照同步失败: {e}")
+    except subprocess.CalledProcessError as exc:
+        print(f"[ERROR] Official-node snapshot sync failed: {exc}")
         return False
 
 
-def create_spec_file():
-    """Create PyInstaller spec file"""
-    print("Creating PyInstaller spec file...")
-    
-    # 验证必要的文件和目录
-    ROOT_DIR = Path(".")
-    ASSETS_DIR = ROOT_DIR / "assets"
-    ICONS_DIR = ASSETS_DIR / "icons"
-    EXAMPLES_DIR = ROOT_DIR / "examples"
-    
-    # 检查文件是否存在
-    missing_files = []
-    
-    # Windows 可执行文件图标必须使用 ICO，任务管理器与开始菜单均依赖此图标资源
-    ico_file = ASSETS_DIR / "mozikit.ico"
-    png_file = ASSETS_DIR / "mozikit_64.png"
-    
-    icon_file = None
-    if ico_file.exists():
-        icon_file = ico_file
-        print(f"[OK] Using ICO icon: {ico_file}")
-    else:
-        raise FileNotFoundError(f"Required Windows icon not found: {ico_file}")
-    
-    if not ICONS_DIR.exists():
-        missing_files.append(str(ICONS_DIR))
-    
-    if missing_files:
-        print("[WARNING] Warning: The following files or directories do not exist:")
-        for file in missing_files:
-            print(f"   - {file}")
-        print("Skipping these files...")
-    
-    # 构建文件列表
-    added_files = []
-    
-    # 资源文件
-    if ico_file.exists():
-        added_files.append((str(ico_file), "assets"))
-
-    if png_file.exists():
-        added_files.append((str(png_file), "assets"))
-    
-    if ICONS_DIR.exists():
-        added_files.append((str(ICONS_DIR), "assets/icons"))
-    
-    # 示例文件
-    if EXAMPLES_DIR.exists():
-        added_files.append((str(EXAMPLES_DIR), "examples"))
-    
-    # 工作流运行脚本
-    runner_script = ROOT_DIR / "src" / "core" / "workflow_runner.py"
-    if runner_script.exists():
-        added_files.append((str(runner_script), "src/core"))
-
-    # 版本号文件
-    version_file = ROOT_DIR / "src" / "core" / "_version.py"
-    if version_file.exists():
-        added_files.append((str(version_file), "src/core"))
-
-    # 官方节点快照（打包前已由 sync_official_nodes_snapshot 生成；缺失时明确告警）
-    official_nodes_dir = ROOT_DIR / "official_nodes"
-    if official_nodes_dir.exists():
-        added_files.append((str(official_nodes_dir), "official_nodes"))
-    else:
-        print(
-            "[WARNING] official_nodes 快照目录不存在，打包将不含内置节点"
-            "（运行时仅告警、不崩溃）"
+def create_spec_file() -> Path:
+    """Validate the checked-in shared multi-executable spec."""
+    if not SPEC_PATH.exists():
+        raise FileNotFoundError(f"Missing PyInstaller spec: {SPEC_PATH}")
+    if not BUNDLED_UV_PATH.is_file():
+        raise FileNotFoundError(
+            f"Bundled UV is missing: {BUNDLED_UV_PATH}. "
+            "Run scripts/download_uv.ps1 before building."
         )
-    
-    # 手动构建spec内容，避免f-string问题
-    spec_lines = [
-        '# -*- mode: python ; coding: utf-8 -*-',
-        '',
-        'import sys',
-        'from pathlib import Path',
-        '',
-        '# 项目根目录',
-        'ROOT_DIR = Path(".")',
-        'ASSETS_DIR = ROOT_DIR / "assets"',
-        '',
-        '# 收集所有需要的文件',
-        'added_files = ' + repr(added_files),
-        '',
-        '# 隐藏导入',
-        'hiddenimports = [',
-        '    # PySide6 模块',
-        '    "PySide6.QtCore",',
-        '    "PySide6.QtWidgets",', 
-        '    "PySide6.QtGui",',
-        '    "PySide6.QtNetwork",',
-        '    ',
-        '    # 项目模块',
-        '    "src.main_window",',
-        '    "src.views.workflow_canvas",',
-        '    "src.views.workflow_tab_widget",',
-        '    "src.views.overview_widget",',
-        '    "src.views.node_graphics",',
-        '    "src.views.node_browser",',
-        '    "src.views.node_properties",',
-        '    "src.dialogs.settings_dialog",',
-        '    "src.core.workflow_executor",',
-        '    "src.core.uv_manager",',
-        '    "src.core.node_base",',
-        '    "src.core.node_repo_manager",',
-        '    "src.core.workflow_runner",',
-        '    "src.core.custom_node_manager",',
-        '    "src.core.ai_node_generator",',
-        '    "src.core.code_safety",',
-        '    "src.core.github_oauth",',
-        '    "src.core.credential_store",',
-        '    "src.core.node_version_manager",',
-        '    "src.core.providers.github_provider",',
-        '    ',
-        '    # JSON 和其他依赖',
-        '    "json",',
-        '    "pathlib",',
-        '    "shutil",',
-        '    "time",',
-        '    "math",',
-        '    ',
-        '    # UV 相关',
-        '    "uv",',
-        ']',
-        '',
-        'a = Analysis(',
-        '    ["main.py"],',
-        '    pathex=[str(ROOT_DIR)],',
-        '    binaries=[],',
-        '    datas=added_files,',
-        '    hiddenimports=hiddenimports,',
-        '    hookspath=[],',
-        '    hooksconfig={},',
-        '    runtime_hooks=[],',
-        '    excludes=[',
-        '        # 排除不需要的模块以减小体积',
-        '        "tkinter",',
-        '        "matplotlib",',
-        '        "numpy",',
-        '        "scipy",',
-        '        "pandas",',
-        '        "IPython",',
-        '    ],',
-        '    noarchive=False,',
-        ')',
-        '',
-        'pyz = PYZ(a.pure)',
-        '',
-        '# 图标路径',
-        'icon_path = None',
-        'if Path("assets/mozikit.ico").exists():',
-        '    icon_path = "assets/mozikit.ico"',
-        '    print(f"[INFO] 设置图标: {icon_path}")',
-        'else:',
-        '    raise FileNotFoundError("Missing required icon: assets/mozikit.ico")',
-        '',
-        '# 注意：PySide6 使用 LGPL 许可证，为了合规性，',
-        '# 不建议打包为单文件，而是使用目录版本',
-        'exe = EXE(',
-        '    pyz,',
-        '    a.scripts,',
-        '    [],  # 不包含 binaries 和 datas，由 COLLECT 处理',
-        '    name="Mozikit",',
-        '    debug=False,',
-        '    bootloader_ignore_signals=False,',
-        '    strip=False,',
-        '    upx=True,',
-        '    upx_exclude=[],',
-        '    runtime_tmpdir=None,',
-        '    console=False,  # 不显示控制台窗口',
-        '    disable_windowed_traceback=False,',
-        '    argv_emulation=False,',
-        '    target_arch=None,',
-        '    codesign_identity=None,',
-        '    entitlements_file=None,',
-        '    icon=icon_path,',
-        ')',
-        '',
-        '# 创建目录版本（PySide6 推荐方式）',
-        'coll = COLLECT(',
-        '    exe,',
-        '    a.binaries,',
-        '    a.datas,',
-        '    strip=False,',
-        '    upx=True,',
-        '    upx_exclude=[],',
-        '    name="Mozikit"',
-        ')',
-    ]
-    
-    spec_content = '\n'.join(spec_lines)
-    
-    with open('Mozikit.spec', 'w', encoding='utf-8') as f:
-        f.write(spec_content)
-    
-    print("[OK] Mozikit.spec created successfully")
+    print(f"[OK] Using shared PyInstaller spec: {SPEC_PATH}")
+    return SPEC_PATH
 
-def clean_build():
-    """Clean previous build files"""
-    print("Cleaning previous build files...")
-    
-    dirs_to_clean = ['build', 'dist', 'Mozikit_dir']
-    for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
-            print(f"  - Deleted {dir_name}")
-    
-    files_to_clean = ['Mozikit.spec']
-    for file_name in files_to_clean:
-        if os.path.exists(file_name):
-            os.remove(file_name)
-            print(f"  - Deleted {file_name}")
 
-def build_executable():
-    """Build executable"""
-    print("Starting build...")
-    
-    # Build
-    cmd = [
-        'pyinstaller',
-        '--clean',
-        '--noconfirm',
-        'Mozikit.spec'
-    ]
-    
+def clean_build() -> None:
+    """Remove generated build outputs without deleting the downloaded UV."""
+    for path in (PYINSTALLER_WORKPATH, ROOT_DIR / "dist", ROOT_DIR / "Mozikit_dir"):
+        if path.exists():
+            shutil.rmtree(path)
+            print(f"  - Deleted {path.relative_to(ROOT_DIR)}")
+
+
+def build_executable() -> bool:
+    """Build the shared directory distribution from ``Mozikit.spec``."""
     try:
-        subprocess.check_call(cmd)
-        print("[OK] Build completed!")
+        # The generated module is copied into the shared COLLECT tree by the
+        # spec.  Generate it here as well as from the higher-level build
+        # scripts so direct ``build.build_executable()`` calls are reproducible.
+        generate_version_file()
+        create_spec_file()
+        command = [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--clean",
+            "--noconfirm",
+            "--workpath",
+            str(PYINSTALLER_WORKPATH),
+            "--distpath",
+            str(ROOT_DIR / "dist"),
+            str(SPEC_PATH),
+        ]
+        subprocess.check_call(command, cwd=ROOT_DIR)
+        normalize_distribution_layout()
+        print("[OK] PyInstaller build completed")
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Build failed: {e}")
+    except (subprocess.CalledProcessError, FileNotFoundError, RuntimeError) as exc:
+        print(f"[ERROR] Build failed: {exc}")
         return False
 
-def verify_build():
-    """Verify build results"""
-    print("Verifying build results...")
-    
-    # Check directory version (PySide6 recommended)
-    dir_path = Path('dist/Mozikit')
-    if dir_path.exists():
-        print(f"[OK] Directory distribution found: {dir_path}")
-        
-        # Check main executable
-        main_exe = dir_path / 'Mozikit.exe'
-        if main_exe.exists():
-            size_mb = main_exe.stat().st_size / (1024 * 1024)
-            print(f"   Main executable: {main_exe}")
-            print(f"   Size: {size_mb:.1f} MB")
-            print("   ✅ Compliant with PySide6 LGPL requirements")
-        
-        return True
-    else:
-        print("[ERROR] Directory distribution not found")
+
+def normalize_distribution_layout() -> None:
+    """Promote user-visible resources out of PyInstaller's ``_internal``.
+
+    PyInstaller 6 puts collected binaries/data below ``_internal`` by
+    default.  Mozikit's public directory contract keeps UV, assets, and the
+    official-node snapshot beside the launchers, while Python modules remain
+    in ``_internal``.
+    """
+    internal_dir = DIST_PATH / "_internal"
+    if not internal_dir.is_dir():
+        raise FileNotFoundError(f"PyInstaller internal directory missing: {internal_dir}")
+    for name in ("runtime", "official_nodes", "assets", "examples"):
+        source = internal_dir / name
+        destination = DIST_PATH / name
+        if source.exists():
+            if destination.exists():
+                shutil.rmtree(destination)
+            shutil.move(str(source), str(destination))
+
+    version_source = internal_dir / "_version.py"
+    version_destination = DIST_PATH / "_version.py"
+    if version_source.exists():
+        if version_destination.exists():
+            version_destination.unlink()
+        shutil.move(str(version_source), str(version_destination))
+
+
+def _run_smoke(executable: Path, args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
+    creationflags = 0x08000000 if os.name == "nt" else 0
+    return subprocess.run(
+        [str(executable), *args],
+        cwd=executable.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        creationflags=creationflags,
+        check=False,
+    )
+
+
+def verify_build(run_smoke: bool = True) -> bool:
+    """Verify layout and the non-GUI frozen CLI contract."""
+    if not DIST_PATH.is_dir():
+        print(f"[ERROR] Distribution directory not found: {DIST_PATH}")
         return False
 
-def create_release_package():
-    """Create release package (zip) matching GitHub Actions"""
-    print("Creating release package...")
-    
-    release_dir = Path("release")
-    release_dir.mkdir(exist_ok=True)
-    
+    required = [
+        DIST_PATH / "MozikitDesktop.exe",
+        DIST_PATH / "mozikit.exe",
+        DIST_PATH / "runtime" / "uv.exe",
+        DIST_PATH / "_internal",
+        DIST_PATH / "official_nodes" / "manifest.json",
+        DIST_PATH / "_version.py",
+    ]
+    missing = [path for path in required if not path.exists()]
+    if missing:
+        for path in missing:
+            print(f"[ERROR] Required distribution entry missing: {path}")
+        return False
+
+    if not run_smoke:
+        print(f"[OK] Directory distribution found: {DIST_PATH}")
+        return True
+
+    with tempfile.TemporaryDirectory(prefix="mozikit-build-smoke-") as temp_dir:
+        temp_root = Path(temp_dir)
+        env = os.environ.copy()
+        env["MOZIKIT_APP_DATA_DIR"] = str(temp_root / "appdata")
+        env["MOZIKIT_WORKSPACE"] = str(temp_root / "workflows")
+        env["PYTHONIOENCODING"] = "utf-8"
+
+        expected_version = get_version_from_git()
+        version_result = _run_smoke(DIST_PATH / "mozikit.exe", ["--version"], env)
+        if version_result.returncode != 0 or f"v{expected_version}" not in version_result.stdout:
+            print(
+                "[ERROR] CLI version smoke test failed: "
+                f"expected v{expected_version}, got {version_result.stdout!r}; "
+                f"{version_result.stderr or ''}"
+            )
+            return False
+
+        for args in (["--help"],):
+            result = _run_smoke(DIST_PATH / "mozikit.exe", list(args), env)
+            if result.returncode != 0:
+                print(f"[ERROR] CLI smoke test failed ({args}): {result.stderr or result.stdout}")
+                return False
+        uv_result = _run_smoke(DIST_PATH / "runtime" / "uv.exe", ["--version"], env)
+        if uv_result.returncode != 0:
+            print(f"[ERROR] Bundled UV smoke test failed: {uv_result.stderr or uv_result.stdout}")
+            return False
+
+    print(f"[OK] Frozen CLI and bundled UV smoke tests passed: {DIST_PATH}")
+    return True
+
+
+def create_release_package() -> Path:
+    """Create the stable portable ZIP containing the top-level Mozikit dir."""
+    source_dir = DIST_PATH
+    if not source_dir.is_dir():
+        raise FileNotFoundError(f"Source directory not found: {source_dir}")
+    release_dir = ROOT_DIR / "release"
+    release_dir.mkdir(parents=True, exist_ok=True)
     zip_path = release_dir / "Mozikit-Windows-x64.zip"
-    source_dir = Path("dist/Mozikit")
-    
-    if not source_dir.exists():
-        print(f"[ERROR] Source directory not found: {source_dir}")
-        return False
-        
-    import zipfile
-    
-    try:
-        print(f"Zipping to {zip_path}...")
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for file_path in source_dir.rglob('*'):
-                arcname = file_path.relative_to(source_dir.parent)
-                zf.write(file_path, arcname)
-                
-        print(f"[OK] Release package created: {zip_path}")
-        return True
-    except Exception as e:
-        print(f"[ERROR] Failed to create zip: {e}")
-        return False
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for file_path in source_dir.rglob("*"):
+            if file_path.is_file():
+                archive.write(file_path, file_path.relative_to(source_dir.parent))
+    print(f"[OK] Portable ZIP created: {zip_path}")
+    return zip_path
 
-def create_portable_package():
-    """Create portable package"""
-    print("Creating portable package...")
-    
-    portable_dir = Path('dist/Mozikit_Portable')
+
+def create_portable_package() -> Path:
+    """Create a local convenience copy without PATH or Start Menu changes."""
+    source_dir = DIST_PATH
+    portable_dir = ROOT_DIR / "dist" / "Mozikit_Portable"
     if portable_dir.exists():
         shutil.rmtree(portable_dir)
-    
-    portable_dir.mkdir(parents=True)
-    
-    # Copy directory version
-    dir_path = Path('dist/Mozikit')
-    if dir_path.exists():
-        shutil.copytree(dir_path, portable_dir / 'Mozikit', dirs_exist_ok=True)
-    
-    # Create start script
-    if os.name == 'nt':  # Windows
-        start_script = portable_dir / 'Start_Mozikit.bat'
-        start_script.write_text('''@echo off
-cd /d "%~dp0Mozikit"
-Mozikit.exe
-pause
-''')
-        print("[OK] Portable version created (Start script: Start_Mozikit.bat)")
-    else:  # Linux/Mac
-        start_script = portable_dir / 'start_mozikit.sh'
-        start_script.write_text('''#!/bin/bash
-cd "$(dirname "$0")/Mozikit"
-./Mozikit
-''')
-        os.chmod(start_script, 0o755)
-        print("[OK] Portable version created (Start script: start_mozikit.sh)")
+    shutil.copytree(source_dir, portable_dir)
+    if os.name == "nt":
+        (portable_dir / "Start_Mozikit.cmd").write_text(
+            '@echo off\r\n"%~dp0MozikitDesktop.exe"\r\n',
+            encoding="ascii",
+        )
+    print(f"[OK] Portable convenience directory created: {portable_dir}")
+    return portable_dir
 
-def main():
-    """Main function"""
-    print("=" * 50)
-    print("Mozikit PyInstaller Build Script")
-    print("=" * 50)
-    
-    # Check current directory
-    if not Path('main.py').exists():
-        print("[ERROR] Error: Please run this script from project root")
-        sys.exit(1)
-    
+
+def main() -> None:
+    print("=" * 60)
+    print("Mozikit Desktop Windows Build")
+    print("=" * 60)
+    if not (ROOT_DIR / "pyproject.toml").exists():
+        raise SystemExit("Please run this script from the Mozikit project checkout")
+
     try:
-        # 1. Check dependencies
         check_requirements()
-
-        # 2. Generate version file
         generate_version_file()
-
-        # 3. 同步官方节点快照（构建必需；失败时明确告警，不静默跳过）
-        if not sync_official_nodes_snapshot():
-            print(
-                "[WARNING] 官方节点快照同步失败，请检查网络或镜像源配置；"
-                "构建将继续，但打包产物可能不含内置节点"
-            )
-
-        # 4. Ask to clean
-        clean = input("\nClean previous build files? (y/N): ").lower().startswith('y')
+        if not sync_official_nodes_snapshot() and not (ROOT_DIR / "official_nodes" / "manifest.json").exists():
+            raise RuntimeError("Official nodes snapshot is required for a Desktop release")
+        clean = input("\nClean generated build outputs? (y/N): ").lower().startswith("y")
         if clean:
             clean_build()
-
-        # 5. Create spec file
         create_spec_file()
-        
-        # 6. Build executable
-        if not build_executable():
-            sys.exit(1)
-        
-        # 7. Verify build
-        if not verify_build():
-            sys.exit(1)
-        
-        # 8. Create release package (GitHub Actions style)
+        if not build_executable() or not verify_build():
+            raise SystemExit(1)
         create_release_package()
-
-        # 9. Create portable version (Optional, kept for convenience)
         create_portable_package()
-        
-        print("\n" + "=" * 50)
-        print("[SUCCESS] Build completed!")
-        print("=" * 50)
-        print("\nOutput files:")
-        print("  - dist/Mozikit/                (Directory version)")
-        print("  - release/Mozikit-Windows-x64.zip (Release Package - Matches GitHub Actions)")
-        print("  - dist/Mozikit_Portable/       (Portable version with start script)")
-        print("\n✅ Compliant with PySide6 LGPL requirements")
-        print("Recommended usage:")
-        print("  - Use release/Mozikit-Windows-x64.zip for distribution")
-        
     except KeyboardInterrupt:
-        print("\n\n[INFO] Build cancelled")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n[ERROR] Error occurred: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        print("\n[INFO] Build cancelled")
+        raise SystemExit(1)
+    except Exception as exc:
+        print(f"\n[ERROR] Build failed: {exc}")
+        raise SystemExit(1) from exc
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
