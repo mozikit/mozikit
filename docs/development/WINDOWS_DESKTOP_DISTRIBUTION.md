@@ -88,11 +88,15 @@ MSI 通过 WiX `Environment` 表把安装目录加入机器 PATH：
 
 如需当前用户 PATH，可显式运行 `.\Mozikit\mozikit.exe cli install`；`cli status --json` 返回 `registered`、`not registered` 或 `broken`。
 
-## 7. 版本、Release 和签名
+## 7. 版本、Release、Nightly 和签名
 
 构建版本来源按以下顺序统一：`MOZIKIT_VERSION`、精确的 `vX.Y.Z` Git tag、构建生成的 `_version.py`、`pyproject.toml`。Release CI 从 tag 解析版本并注入 `MOZIKIT_VERSION`，因此 PyInstaller、CLI `--version`、MSI ProductVersion 和发布资产使用同一版本。
 
 当前保留已有 MSI 资产命名 `mozikit-vX.Y.Z-x64.msi`，避免破坏既有下载链接；Portable 资产为 `Mozikit-Windows-x64.zip`，并发布 `SHA256SUMS`。WinGet manifest 不在本 release workflow 中生成或提交；用户数据在 LocalAppData，升级不覆盖 config、workflows、credentials、MCP registry 或执行历史。
+
+Nightly 使用 `vX.Y.Z-nightly.YYYYMMDD.<sha7>` 标签，从 `dev` 当前精确 commit 构建 GitHub pre-release。Nightly 只在同一 commit 的 Windows CI 成功后发布，并在该 commit 已有 nightly tag 时跳过，避免重复发布。稳定版使用 `vX.Y.Z` 标签；两者共用同一个 Windows 构建 workflow。
+
+每个发布同时生成 `update-manifest.json`。它是未来 updater 的下载与校验发现契约，不会自行执行更新：当前升级仍由 MSI 的稳定 `UpgradeCode` 管理，保留 `%LOCALAPPDATA%\Mozikit`；Portable ZIP 仍由用户手动替换安装目录。Nightly MSI/Portable 的真实升级行为仍需在 Windows 验收环境确认。
 
 `scripts/sign_windows.ps1` 是可选 Authenticode 阶段：配置 `MOZIKIT_SIGNING_CERTIFICATE_BASE64` 和密码时依次签名/验证 GUI、CLI、bundled UV 和 MSI；未配置时构建明确输出 unsigned warning 并继续，不把证书或私钥提交到仓库。
 
@@ -113,6 +117,7 @@ checkout tag
 -> WiX MSI
 -> 可选 MSI 签名
 -> Portable ZIP + SHA256SUMS
+-> update-manifest.json
 -> artifact
 -> GitHub Release
 ```

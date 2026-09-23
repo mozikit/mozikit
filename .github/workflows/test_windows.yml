@@ -1,0 +1,51 @@
+name: Test (Windows)
+
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+concurrency:
+  group: windows-test-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: "1"
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: pip
+
+    - name: Install test dependencies
+      shell: pwsh
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+        python -m pip install -e ".[gui]"
+        python -m pip install pytest
+
+    - name: Provide official nodes test fixture
+      shell: pwsh
+      run: |
+        if (-not (Test-Path "official_nodes/manifest.json")) {
+          New-Item -ItemType Directory -Force -Path official_nodes | Out-Null
+          '{"repo_name":"mozikit-official-nodes","repo_version":"0.0.0","nodes":{}}' |
+            Set-Content -LiteralPath "official_nodes/manifest.json" -Encoding utf8
+        }
+
+    - name: Run tests
+      shell: pwsh
+      run: python -m pytest -q

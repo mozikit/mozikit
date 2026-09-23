@@ -15,13 +15,49 @@ on:
         description: "Release tag to publish (for example: v0.1.0)"
         required: true
         type: string
+      source_ref:
+        description: "Commit, branch, or tag to build (defaults to the release tag)"
+        required: false
+        default: ""
+        type: string
+      prerelease:
+        description: "Publish as a GitHub pre-release"
+        required: false
+        default: false
+        type: boolean
+      release_body:
+        description: "Optional release description"
+        required: false
+        default: ""
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Release tag to publish"
+        required: true
+        type: string
+      source_ref:
+        description: "Commit, branch, or tag to build"
+        required: false
+        default: ""
+        type: string
+      prerelease:
+        description: "Publish as a GitHub pre-release"
+        required: false
+        default: false
+        type: boolean
+      release_body:
+        description: "Optional release description"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+  group: release-${{ github.workflow }}-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
-  RESOLVED_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref }}
+  RESOLVED_REF: ${{ inputs.source_ref || inputs.release_tag || github.ref }}
 
 jobs:
   build_windows:
@@ -62,17 +98,24 @@ jobs:
       id: release_meta
       shell: pwsh
       run: |
-        $tag = "${{ github.ref_name }}"
-        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-          $tag = "${{ github.event.inputs.release_tag }}"
+        $tag = "${{ inputs.release_tag }}"
+        if ([string]::IsNullOrWhiteSpace($tag)) {
+          $tag = "${{ github.ref_name }}"
         }
-        if ($tag -notmatch '^v\d+\.\d+\.\d+') {
-          throw "Release tag must be a semantic version beginning with v (got: $tag)."
+        if ($tag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+          throw "Release tag must be a semantic version or pre-release beginning with v (got: $tag)."
         }
+        $sourceRef = (git rev-parse HEAD).Trim()
         $version = $tag.Substring(1)
+        $isNightly = $tag -match '-nightly\.\d{8}\.[0-9a-f]{7}$'
+        $isPrerelease = $isNightly -or ("${{ inputs.prerelease }}" -eq "true")
         "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "source_ref=$sourceRef" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         Write-Host "Release version: $version"
+        Write-Host "Release source: $sourceRef"
+        Write-Host "Pre-release: $isPrerelease"
 
     - name: Download and verify pinned UV
       shell: pwsh
@@ -150,15 +193,30 @@ jobs:
         }
         Compress-Archive -Path "dist/Mozikit" -DestinationPath "release/Mozikit-Windows-x64.zip" -CompressionLevel Optimal
 
+    - name: Generate update manifest
+      shell: pwsh
+      env:
+        MOZIKIT_RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
+        MOZIKIT_RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+        MOZIKIT_RELEASE_SOURCE_REF: ${{ steps.release_meta.outputs.source_ref }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        python scripts/generate_update_manifest.py `
+          --release-dir release `
+          --tag $env:MOZIKIT_RELEASE_TAG `
+          --version $env:MOZIKIT_RELEASE_VERSION `
+          --source-ref $env:MOZIKIT_RELEASE_SOURCE_REF `
+          --repository $env:GITHUB_REPOSITORY
+
     - name: Calculate SHA256SUMS
       shell: pwsh
       run: |
         $lines = @()
-        foreach ($artifact in Get-ChildItem -LiteralPath "release" -File | Where-Object { $_.Extension -in @(".msi", ".zip") } | Sort-Object Name) {
+        foreach ($artifact in Get-ChildItem -LiteralPath "release" -File | Where-Object { $_.Extension -in @(".msi", ".zip", ".json") -and $_.Name -ne "SHA256SUMS" } | Sort-Object Name) {
           $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           $lines += "$hash  $($artifact.Name)"
         }
-        if ($lines.Count -lt 2) { throw "Expected MSI and ZIP release assets" }
+        if ($lines.Count -lt 3) { throw "Expected MSI, ZIP, and update manifest release assets" }
         Set-Content -LiteralPath "release/SHA256SUMS" -Value $lines -Encoding ascii
         Get-Content -LiteralPath "release/SHA256SUMS"
 
@@ -184,15 +242,28 @@ jobs:
     - name: Resolve release tag
       id: release_meta
       shell: bash
+      env:
+        INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        INPUT_RELEASE_BODY: ${{ inputs.release_body }}
       run: |
         set -euo pipefail
-        if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-          tag="${{ github.event.inputs.release_tag }}"
-        else
-          tag="${GITHUB_REF_NAME}"
-        fi
-        [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Invalid release tag: ${tag}" >&2; exit 1; }
+        tag="${INPUT_RELEASE_TAG:-${GITHUB_REF_NAME}}"
+        [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "Invalid release tag: ${tag}" >&2; exit 1; }
+        source_ref="$(git rev-parse HEAD)"
+        prerelease=false
+        [[ "${tag}" =~ -nightly\.[0-9]{8}\.[0-9a-f]{7}$ ]] && prerelease=true
+        [[ "${INPUT_PRERELEASE}" == "true" ]] && prerelease=true
         echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+        echo "source_ref=${source_ref}" >> "$GITHUB_OUTPUT"
+        echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+        if [[ -n "${INPUT_RELEASE_BODY:-}" ]]; then
+          {
+            echo "release_body<<EOF"
+            printf '%s\n' "${INPUT_RELEASE_BODY}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Download release assets
       uses: actions/download-artifact@v4
@@ -204,13 +275,16 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.release_meta.outputs.tag }}
+        target_commitish: ${{ steps.release_meta.outputs.source_ref }}
         files: |
           release/Mozikit-Windows-x64.zip
           release/mozikit-*-x64.msi
           release/SHA256SUMS
+          release/update-manifest.json
         draft: false
-        prerelease: false
-        generate_release_notes: true
+        prerelease: ${{ steps.release_meta.outputs.prerelease == 'true' }}
+        generate_release_notes: ${{ steps.release_meta.outputs.prerelease != 'true' }}
+        body: ${{ steps.release_meta.outputs.release_body }}
         fail_on_unmatched_files: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -228,11 +302,11 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+        TAG: ${{ inputs.release_tag || github.ref_name }}
         BUILD_RESULT: ${{ needs.build_windows.result }}
         PUBLISH_RESULT: ${{ needs.publish_release.result }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+        RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ inputs.release_tag || github.ref_name }}
       run: |
         set -euo pipefail
         if [ -z "${TELEGRAM_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then

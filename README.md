@@ -37,6 +37,8 @@ mozikit run .\workflows\example.json --json
 
 正式安装会将安装目录加入 PATH，因此脚本和 Agent 可以直接调用 `mozikit`。配置、凭据、MCP registry、运行历史和默认工作流位于 `%LOCALAPPDATA%\Mozikit`，不会写入 Program Files 安装目录。
 
+开发中的 Nightly 版本从 GitHub Releases 的 Pre-release 获取，标签格式为 `vX.Y.Z-nightly.YYYYMMDD.<sha7>`。Nightly 用于验证 `dev` 分支，不等同于稳定版；安装升级仍遵循 MSI/Portable 的既有边界。
+
 Portable ZIP（`Mozikit-Windows-x64.zip`）包含 GUI、CLI、共享运行时、官方节点和 bundled UV；解压后可直接运行 `Mozikit\mozikit.exe`，不会默认修改 PATH、开始菜单或卸载注册。需要时可从 Portable CLI 执行 `mozikit cli install` 注册当前用户 PATH。
 
 ---
