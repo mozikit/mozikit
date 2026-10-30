@@ -1305,7 +1305,8 @@
       "@DIST_005",
       "@windows",
       "@packaged",
-      "@p2"
+      "@p2",
+      "@manual"
     ]
   },
   "DIST_006": {
@@ -1320,7 +1321,8 @@
       "@DIST_006",
       "@windows",
       "@packaged",
-      "@p2"
+      "@p2",
+      "@manual"
     ]
   },
   "DIST_007": {
@@ -1335,7 +1337,8 @@
       "@DIST_007",
       "@windows",
       "@packaged",
-      "@p2"
+      "@p2",
+      "@manual"
     ]
   },
   "DIST_008": {

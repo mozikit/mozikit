@@ -50,6 +50,10 @@ Windows 离线执行移除 `not windows`，这样包括原生 Windows 文件覆�
 验收入口见 `external_cases.py` 与 `external-manifest.example.json`。
 通过环境变量 `MOZIKIT_ACCEPTANCE_EXTERNAL_MANIFEST` 指定证据清单；未提供时明确阻塞。
 自动化部分会直接执行成品 CLI，子进程清除 PYTHONPATH/VIRTUAL_ENV，仅保留系统目录与发行版 runtime 的 PATH。
+同时设置 UV_PYTHON_PREFERENCE=only-managed 并使用全新 Python 安装目录，避免 UV 从注册表借用开发 Python。
+Windows CI 的 `packaged-parity` job 构建真实 exe、MSI 和 ZIP，在可销毁 VM 内安装、验收、卸载 MSI；
+自动运行 DIST_001–004 的 6 个展开用例，上传成品与 `windows-packaged-verification` 证据。
+DIST_005–008 保留人工标签；没有逐项现场观察时不计入通过。
 PATH 注册操作仅允许清单中声明的 disposable Windows VM，并在 finally 恢复用户注册表原始值和类型。
 
 现场清单包含 source_ref、操作者、UTC 时间、成品哈希、逐项观察和证据文件哈希。

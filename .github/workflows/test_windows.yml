@@ -69,3 +69,56 @@ jobs:
           coverage.json
           tests.xml
           acceptance.json
+
+  packaged-parity:
+    name: Real MSI and portable acceptance
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+      PYTHON_KEYRING_BACKEND: "keyring.backends.null.Keyring"
+      MOZIKIT_VERSION: "0.2.5"
+      MOZIKIT_SKIP_OFFICIAL_NODES_SYNC: "1"
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: pip
+    - name: Install packaging and acceptance dependencies
+      shell: pwsh
+      run: |
+        python -m pip install -e ".[test,gui,serve]" pyinstaller
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - name: Fetch pinned bundled UV and official snapshot
+      shell: pwsh
+      run: |
+        ./scripts/download_uv.ps1
+        python tools/sync_official_nodes.py
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - name: Build actual desktop and CLI executables
+      shell: pwsh
+      run: python auto_build.py
+    - name: Build test MSI
+      shell: pwsh
+      run: |
+        choco install wixtoolset --no-progress -y
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $wix = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*\bin\candle.exe" | Select-Object -First 1
+        if (-not $wix) { throw "WiX v3 candle.exe not found" }
+        $env:PATH = "$($wix.Directory.FullName);$env:PATH"
+        ./scripts/build_msi.ps1 -Tag "v0.2.5-parity"
+    - name: Install MSI and verify both real packages without developer Python
+      shell: pwsh
+      run: ./scripts/test_packaged_parity.ps1
+    - name: Upload package verification and built artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-packaged-verification
+        retention-days: 7
+        path: |
+          packaged-verification/
+          release/

@@ -32,17 +32,17 @@
     当执行业务操作 "MSI PATH 所有权"，变体为 "default"
     那么应满足：不移除安装器管理的 PATH 项
 
-  @DIST_005 @windows @packaged @p2
+  @DIST_005 @windows @packaged @manual @p2
   场景: 成品两端工作流历史共享
     当执行业务操作 "成品两端工作流历史共享"，变体为 "default"
     那么应满足：同一工作区配置和报告可读取
 
-  @DIST_006 @windows @packaged @p2
+  @DIST_006 @windows @packaged @manual @p2
   场景: 更新检查与确认语义
     当执行业务操作 "更新检查与确认语义"，变体为 "default"
     那么应满足：检查不安装且明确确认后才交接
 
-  @DIST_007 @windows @packaged @p2
+  @DIST_007 @windows @packaged @manual @p2
   场景: 更新包校验失败
     当执行业务操作 "更新包校验失败"，变体为 "default"
     那么应满足：安装器不启动且用户数据不变

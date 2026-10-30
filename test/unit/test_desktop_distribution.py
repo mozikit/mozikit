@@ -265,3 +265,24 @@ def test_spec_defines_two_shared_directory_entrypoints():
     assert "console=False" in text
     assert "console=True" in text
     assert "COLLECT(" in text
+
+
+def test_windows_registry_uses_the_real_machine_environment_key():
+    from contextlib import contextmanager
+    from src.core.cli_registration import _read_registry_path
+    class Registry:
+        HKEY_LOCAL_MACHINE=object()
+        HKEY_CURRENT_USER=object()
+        KEY_READ=1
+        @staticmethod
+        @contextmanager
+        def OpenKey(root,path,*_):
+            assert path==(r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+                          if root is Registry.HKEY_LOCAL_MACHINE else 'Environment')
+            yield (root,path)
+        @staticmethod
+        def QueryValueEx(key,name):
+            assert name=='Path'
+            return ('machine PATH' if key[0] is Registry.HKEY_LOCAL_MACHINE else 'user PATH',2)
+    assert _read_registry_path(Registry.HKEY_LOCAL_MACHINE,Registry)=='machine PATH'
+    assert _read_registry_path(Registry.HKEY_CURRENT_USER,Registry)=='user PATH'

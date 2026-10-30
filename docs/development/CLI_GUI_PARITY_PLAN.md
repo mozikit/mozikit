@@ -37,6 +37,7 @@
 
 详见 [验收 README](../../test/acceptance/README.md)。开发环境执行离线 cohort，Windows CI 增加原生平台保存检查。
 成品验收使用实际 exe/MSI/ZIP 的 SHA-256 和源提交，移除子进程 PATH 中的开发 Python。
+Windows CI 新增真实构建及安装验收 job，自动运行 DIST_001–004 的 6 个展开用例，不执行发布。
 可自动化的成品命令直接执行；需要 GUI 操作、MSI 安装和真实 Chrome 的用例按现场清单录制证据。
 
 ## 当前状态与交付原则

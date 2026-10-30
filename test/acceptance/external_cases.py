@@ -37,7 +37,10 @@ def evidence_file(data,entry):
     path=Path(entry['path'])
     if not path.is_absolute():path=data['_base']/path
     assert path.is_file(),'Missing evidence file: '+str(path)
-    assert hashlib.sha256(path.read_bytes()).hexdigest()==entry['sha256'],'Changed evidence file: '+str(path)
+    digest=hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda:stream.read(1024*1024),b''):digest.update(chunk)
+    assert digest.hexdigest()==entry['sha256'],'Changed evidence file: '+str(path)
     return path
 
 
@@ -58,6 +61,9 @@ def command(w,exe,*args,code=0,timeout=60):
     for key in ['PYTHONPATH','PYTHONHOME','VIRTUAL_ENV']:
         env.pop(key,None)
     system=Path(env['SystemRoot'])
+    env['PYTHONUTF8']='1'
+    env['UV_PYTHON_PREFERENCE']='only-managed'
+    env['UV_PYTHON_INSTALL_DIR']=str(w.root/'managed-python')
     env['PATH']=os.pathsep.join(map(str,[system/'System32',system,exe.parent/'runtime']))
     result=subprocess.run([str(exe),*map(str,args)],cwd=w.root,env=env,capture_output=True,
                           text=True,encoding='utf-8',timeout=timeout)
