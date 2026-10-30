@@ -221,7 +221,7 @@ def test_schedule_change_preserves_identity_and_failed_update_is_atomic(isolated
     task_id = scheduler.add_task('demo', str(source))
     invoke('schedule', 'update', task_id, '--workflow', workspace / 'beta' / 'workflow.json')
     task = ConfigManager().get_scheduled_task(task_id)
-    assert task['workflow_name'] == 'beta' and task['workflow_path'].endswith('beta/workflow.json')
+    assert task['workflow_name'] == 'beta' and Path(task['workflow_path']) == workspace / 'beta' / 'workflow.json'
     before = deepcopy(task)
     result = CliRunner().invoke(app, ['schedule', 'update', task_id, '--workflow', str(source), '--cron', 'invalid'])
     assert result.exit_code == 1

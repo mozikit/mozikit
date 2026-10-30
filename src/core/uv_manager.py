@@ -906,26 +906,57 @@ class UVManager:
                 creationflags=creationflags
             )
             
-            # 等待READY信号
+            # Poll a reader queue instead of blocking the main thread in ReadFile.
+            # Python's Windows signal handlers can run between these short waits.
+            import queue
             import time
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                if process.poll() is not None:
-                    logger.error("Worker进程提前退出，退出码: %s", process.returncode)
-                    return None
-                    
-                line = process.stdout.readline()
-                if line and "READY" in line:
+            channels = self._worker_channels(process)
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    line = channels.stdout.get(timeout=min(0.1, max(0.001, deadline-time.monotonic())))
+                except queue.Empty:
+                    continue
+                if line is None:
+                    break
+                if "READY" in line:
                     return process
-                time.sleep(0.1)
-                
-            process.kill()
-            logger.error("Worker进程启动超时")
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+            logger.error("Worker进程启动失败或超时: %s", ''.join(channels.stderr))
             return None
-            
+
         except Exception as e:
             logger.error("启动Worker失败: %s", e)
             return None
+
+    @staticmethod
+    def _worker_channels(process):
+        """Continuously drain both pipes; one channel set lasts for the worker."""
+        existing = getattr(process, '_mozikit_channels', None)
+        if existing is not None:
+            return existing
+        from collections import deque
+        from types import SimpleNamespace
+        import queue
+        import threading
+        channels = SimpleNamespace(stdout=queue.Queue(), stderr=deque(maxlen=200))
+        process._mozikit_channels = channels
+        def read_stdout():
+            try:
+                for line in process.stdout:
+                    channels.stdout.put(line)
+            finally:
+                channels.stdout.put(None)
+        def read_stderr():
+            for line in process.stderr:
+                channels.stderr.append(line)
+        channels.threads = [threading.Thread(target=reader, daemon=True)
+                            for reader in (read_stdout, read_stderr)]
+        for thread in channels.threads:
+            thread.start()
+        return channels
 
     def send_command_to_worker(self, process: subprocess.Popen, command: dict, timeout: int = 300, progress_callback=None, log_callback=None) -> dict:
         """
@@ -950,19 +981,20 @@ class UVManager:
             process.stdin.flush()
             
             import time
-            start_time = time.time()
+            import queue
+            channels = self._worker_channels(process)
+            deadline = time.monotonic() + timeout
             output_buffer = []
             json_started = False
             
-            while time.time() - start_time < timeout:
-                if process.poll() is not None:
-                    error = process.stderr.read() if process.stderr else "未知错误"
-                    return {"success": False, "error": f"Worker进程异常退出: {error}"}
-                
-                line = process.stdout.readline()
-                if not line:
+            while time.monotonic() < deadline:
+                try:
+                    line = channels.stdout.get(timeout=min(0.1, max(0.001, deadline-time.monotonic())))
+                except queue.Empty:
                     continue
-                
+                if line is None:
+                    return {"success": False, "error": "Worker进程异常退出: " + ''.join(channels.stderr)}
+
                 if "###PROGRESS##" in line:
                     if progress_callback:
                         try:

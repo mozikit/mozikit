@@ -89,7 +89,7 @@ def ai(w,variant):
     definition=json.loads(generated[0].read_text())
     expected_version='1.0.0' if action=='ai-legacy' else '2.4.0'
     w.eq('generated version persisted',definition['version'],expected_version)
-    w.eq('version directory',generated[0].parent.name,expected_version)
+    w.eq('version directory',generated[0].resolve().parent.name,expected_version)
     w.cmd('node','info',definition['node_type'],real=True)
     w.eq('fresh process loaded correct version',expected_version in w.last.output,True)
     prompt=json.loads(state['requests'][0]['messages'][1]['content'])

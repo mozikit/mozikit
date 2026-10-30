@@ -38,7 +38,7 @@ class World:
                        'nodes':[{'node_id':'a','node_type':'debug','config':{},'position':{'x':12,'y':34},'version':'1.0.0','extra':{'keep':True},'inputs':[],'outputs':[]}],
                        'edges':[],'canvas_state':{'scale_x':1.3,'offset_y':35},'extra':{'keep':[1,False]}}
         write_document(self.source,self.document)
-        (self.source.parent/'input.csv').write_text('id,value\n1,42\n',encoding='utf-8')
+        (self.source.parent/'input.csv').write_bytes(b'id,value\n1,42\n')
         self.checks=[]
         self.stack=ExitStack()
         self.windows=[]
