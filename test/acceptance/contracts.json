@@ -1,0 +1,1359 @@
+{
+  "WF_001": {
+    "action": "rename",
+    "title": "重命名保留用户文件与身份",
+    "expected": "用户资源、坐标、扩展字段和身份保留",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_001",
+      "@e2e",
+      "@p1"
+    ]
+  },
+  "WF_002": {
+    "action": "gui-rename",
+    "title": "GUI 与 CLI 重命名等价",
+    "expected": "真实 GUI 和 CLI 产生等价文档与目录",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_002",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "WF_003": {
+    "action": "invalid-name",
+    "title": "非法名称没有副作用",
+    "expected": "拒绝非法名称且工作区内外不变",
+    "variants": [
+      "../outside",
+      "nested/name",
+      "nested\\name",
+      "/tmp/outside",
+      "C:\\outside",
+      "..",
+      ".",
+      "CON",
+      "bad:name"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_003",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "WF_004": {
+    "action": "gui-name",
+    "title": "两端名称校验和归一化一致",
+    "expected": "两端一致接受或拒绝且名称正确",
+    "variants": [
+      "\"  新流程  \"",
+      "\"../outside\"",
+      "\"AUX\"",
+      "\"\""
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_004",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "WF_005": {
+    "action": "delete-invalid",
+    "title": "删除拒绝非所属工作流",
+    "expected": "父目录和用户文件不被删除",
+    "variants": [
+      "text",
+      "outside",
+      "root",
+      "root-json",
+      "invalid-json"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_005",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "WF_006": {
+    "action": "symlink",
+    "title": "目录链接不能越出工作区",
+    "expected": "外部目录保持不变",
+    "variants": [
+      "rename",
+      "delete",
+      "copy"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_006",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "WF_007": {
+    "action": "delete",
+    "title": "删除只影响目标工作流",
+    "expected": "关联任务禁用且其他任务不变",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_007",
+      "@e2e",
+      "@p1"
+    ]
+  },
+  "WF_008": {
+    "action": "rename-fault",
+    "title": "重命名失败回滚",
+    "expected": "原目录、资源与引用可完整读取",
+    "variants": [
+      "move",
+      "document",
+      "configuration"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_008",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "WF_009": {
+    "action": "recover",
+    "title": "中断事务启动时恢复",
+    "expected": "恰有一个完整工作流且引用一致",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_009",
+      "@e2e",
+      "@p1"
+    ]
+  },
+  "WF_010": {
+    "action": "copy",
+    "title": "复制创建独立身份",
+    "expected": "用户资源保留且不继承运行状态",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_010",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "WF_011": {
+    "action": "exchange",
+    "title": "JSON 交换保留布局",
+    "expected": "原始布局保留且导入身份独立",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_011",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "WF_012": {
+    "action": "collision",
+    "title": "同名冲突不能覆盖",
+    "expected": "源和目标的全部内容保持不变",
+    "variants": [
+      "create",
+      "rename",
+      "copy",
+      "import"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_012",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "WF_013": {
+    "action": "busy",
+    "title": "活动或运行中的工作流不能迁移",
+    "expected": "GUI 与 CLI 拒绝且目录保持不变",
+    "variants": [
+      "active-rename",
+      "active-delete",
+      "running-rename",
+      "running-delete"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_013",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "WF_014": {
+    "action": "relocated",
+    "title": "重命名后环境可用",
+    "expected": "环境重新验证且相对资源可读取",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_014",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "WF_015": {
+    "action": "external",
+    "title": "工作区外显式文件兼容",
+    "expected": "运行验证描述导出成功且源文件不变",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_lifecycle",
+    "tags": [
+      "@WF_015",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "EDIT_001": {
+    "action": "types",
+    "title": "属性表单与 CLI 类型一致",
+    "expected": "两端保存相同 JSON 类型与布局",
+    "variants": [
+      "bool",
+      "int",
+      "float",
+      "string",
+      "array",
+      "object"
+    ],
+    "domain": "workflow_editing",
+    "tags": [
+      "@EDIT_001",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "EDIT_002": {
+    "action": "node-edit",
+    "title": "节点增改删保留其他数据",
+    "expected": "只删除目标节点和关联连接",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_editing",
+    "tags": [
+      "@EDIT_002",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "EDIT_003": {
+    "action": "replace-edge",
+    "title": "连接替换规则一致",
+    "expected": "同一目标端口只保留新连接",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_editing",
+    "tags": [
+      "@EDIT_003",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "EDIT_004": {
+    "action": "invalid-edge",
+    "title": "非法连接不写文件",
+    "expected": "拒绝且文件字节不变",
+    "variants": [
+      "self",
+      "source-port",
+      "target-port",
+      "missing-node",
+      "type"
+    ],
+    "domain": "workflow_editing",
+    "tags": [
+      "@EDIT_004",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "EDIT_005": {
+    "action": "disconnect",
+    "title": "断开端口保留其他连接",
+    "expected": "邻接引用与剩余端口连接一致",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_editing",
+    "tags": [
+      "@EDIT_005",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "EDIT_006": {
+    "action": "gui-reopen",
+    "title": "GUI 重新打开 CLI 工作流",
+    "expected": "保存后业务模型与 CLI 相同",
+    "variants": [
+      "default"
+    ],
+    "domain": "workflow_editing",
+    "tags": [
+      "@EDIT_006",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "RUN_001": {
+    "action": "full-run",
+    "title": "全图执行结果等价",
+    "expected": "节点集合输入输出和历史等价",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_001",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "RUN_002": {
+    "action": "target-run",
+    "title": "目标执行只包含上游",
+    "expected": "A B C 执行且 sibling 不执行",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_002",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "RUN_003": {
+    "action": "report",
+    "title": "完整报告与文件往返",
+    "expected": "JSON 文件和历史报告保留完整输出",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_003",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "RUN_004": {
+    "action": "interrupt",
+    "title": "执行期间中断只停止本次运行",
+    "expected": "退出 130 且 daemon 保持可用",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_004",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "RUN_005": {
+    "action": "prepare-interrupt",
+    "title": "准备环境期间中断",
+    "expected": "退出 130 且没有节点启动",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_005",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "RUN_006": {
+    "action": "failure-run",
+    "title": "节点失败不执行下游",
+    "expected": "报告失败且下游没有执行",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_006",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "RUN_007": {
+    "action": "gui-history",
+    "title": "两端读取相同历史",
+    "expected": "运行身份状态与完整报告相同",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_007",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "RUN_008": {
+    "action": "history-missing",
+    "title": "产物缺失不伪造报告",
+    "expected": "返回失败索引或明确错误",
+    "variants": [
+      "startup",
+      "artifact",
+      "unknown"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_008",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "RUN_009": {
+    "action": "headless",
+    "title": "CLI 无 Qt 依赖",
+    "expected": "新进程不导入 PySide6 仍能运行",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_history",
+    "tags": [
+      "@RUN_009",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "CACHE_001": {
+    "action": "fresh",
+    "title": "默认是新运行",
+    "expected": "上游和目标每次执行",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_001",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "CACHE_002": {
+    "action": "reuse",
+    "title": "显式复用仅跳过上游",
+    "expected": "上游一次目标两次且有来源记录",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_002",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "CACHE_003": {
+    "action": "gui-reuse",
+    "title": "GUI 与 CLI 复用语义一致",
+    "expected": "目标重跑且有效上游复用",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_003",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "CACHE_004": {
+    "action": "cache-change",
+    "title": "不兼容快照整次拒绝",
+    "expected": "不执行任何节点且不修改缓存",
+    "variants": [
+      "identity",
+      "graph",
+      "input",
+      "config",
+      "source",
+      "version",
+      "environment",
+      "artifact",
+      "credential"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_004",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "CACHE_005": {
+    "action": "target-config",
+    "title": "目标配置可改变",
+    "expected": "上游复用且目标用新配置运行",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_005",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "CACHE_006": {
+    "action": "cache-invalid",
+    "title": "不可恢复来源不回退",
+    "expected": "失败且不重跑有副作用的上游",
+    "variants": [
+      "unknown",
+      "failed",
+      "stopped",
+      "display",
+      "missing",
+      "lossy"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_006",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "CACHE_007": {
+    "action": "cache-lossless",
+    "title": "快照无损且受保护",
+    "expected": "大输出和类型完整且快照权限受保护",
+    "variants": [
+      "default"
+    ],
+    "domain": "execution_reuse",
+    "tags": [
+      "@CACHE_007",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "AI_001": {
+    "action": "ai-fields",
+    "title": "CLI 传递全部生成信息",
+    "expected": "HTTP 请求保留示例和全部生成字段",
+    "variants": [
+      "default"
+    ],
+    "domain": "ai_generation",
+    "tags": [
+      "@AI_001",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "AI_002": {
+    "action": "gui-ai",
+    "title": "真实表单和 CLI 请求等价",
+    "expected": "两个真实请求的业务字段相同",
+    "variants": [
+      "default"
+    ],
+    "domain": "ai_generation",
+    "tags": [
+      "@AI_002",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "AI_003": {
+    "action": "ai-version",
+    "title": "生成版本保留",
+    "expected": "清单目录和新进程读取版本为 2.4.0",
+    "variants": [
+      "default"
+    ],
+    "domain": "ai_generation",
+    "tags": [
+      "@AI_003",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "AI_004": {
+    "action": "ai-failure",
+    "title": "生成失败不留半成品",
+    "expected": "注册与磁盘不变且不输出 API key",
+    "variants": [
+      "auth",
+      "timeout",
+      "json",
+      "syntax",
+      "safety",
+      "disk"
+    ],
+    "domain": "ai_generation",
+    "tags": [
+      "@AI_004",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "AI_005": {
+    "action": "ai-legacy",
+    "title": "旧参数兼容",
+    "expected": "缺版本时默认 1.0.0 且示例为空",
+    "variants": [
+      "default"
+    ],
+    "domain": "ai_generation",
+    "tags": [
+      "@AI_005",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "AI_006": {
+    "action": "ai-probe",
+    "title": "连接测试使用保存设置",
+    "expected": "响应结构正确且不泄露凭据",
+    "variants": [
+      "success",
+      "auth",
+      "invalid"
+    ],
+    "domain": "ai_generation",
+    "tags": [
+      "@AI_006",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "SCH_001": {
+    "action": "schedule-target",
+    "title": "原地切换调度目标",
+    "expected": "任务身份统计不变且实际执行新目标",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_001",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "SCH_002": {
+    "action": "gui-schedule",
+    "title": "GUI 与 CLI 调度编辑等价",
+    "expected": "两端持久化目标和 Cron 等价",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_002",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "SCH_003": {
+    "action": "schedule-invalid",
+    "title": "无效更新整次回滚",
+    "expected": "新进程任务与原始快照相同",
+    "variants": [
+      "missing",
+      "cron",
+      "json"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_003",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "SCH_004": {
+    "action": "schedule-life",
+    "title": "调度生命周期与名称兼容",
+    "expected": "仅改名称不切换目标且启停触发删除正确",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_004",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "SCH_005": {
+    "action": "trigger-life",
+    "title": "Trigger 管理可持久读取",
+    "expected": "配置启停和删除保留其他工作流数据",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_005",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "SCH_006": {
+    "action": "watch",
+    "title": "真实目录事件和协调",
+    "expected": "修改目录和停用后事件遵循实际状态",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_006",
+      "@e2e",
+      "@p2"
+    ]
+  },
+  "SCH_007": {
+    "action": "activation-failure",
+    "title": "激活失败回滚",
+    "expected": "活动状态仍为 false",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_007",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "SCH_008": {
+    "action": "gui-trigger",
+    "title": "GUI 显示同一监听事实",
+    "expected": "活动状态身份与最近事件一致",
+    "variants": [
+      "default"
+    ],
+    "domain": "scheduling",
+    "tags": [
+      "@SCH_008",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "PW_001": {
+    "action": "gui-script",
+    "title": "脚本与参数 schema 等价",
+    "expected": "两端参数一致且保留仍存在的值",
+    "variants": [
+      "default"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_001",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "PW_002": {
+    "action": "script-life",
+    "title": "查看校验重扫清空",
+    "expected": "只读操作不写文件且清空移除参数",
+    "variants": [
+      "default"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_002",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "PW_003": {
+    "action": "script-invalid",
+    "title": "无效脚本不覆盖",
+    "expected": "原始配置字节保持不变",
+    "variants": [
+      "syntax",
+      "missing",
+      "wrong-type",
+      "empty"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_003",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "PW_004": {
+    "action": "tool-install",
+    "title": "安装使用独立解释器",
+    "expected": "从不把 GUI 或 CLI EXE 当 Python",
+    "variants": [
+      "source",
+      "msi",
+      "portable"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_004",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "PW_005": {
+    "action": "record",
+    "title": "成功录制经校验保存",
+    "expected": "工具参数正确且写回合法脚本",
+    "variants": [
+      "default"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_005",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "PW_006": {
+    "action": "record-failure",
+    "title": "录制失败保留原配置",
+    "expected": "进程清理且原文件不变",
+    "variants": [
+      "interrupt",
+      "start",
+      "exit",
+      "missing",
+      "empty",
+      "syntax"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_006",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "PW_007": {
+    "action": "gui-runtime",
+    "title": "两端发现相同工具环境",
+    "expected": "中文空格路径可用且不受 PATH 误导",
+    "variants": [
+      "default"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_007",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "PW_008": {
+    "action": "tool-failure",
+    "title": "安装失败保护旧环境",
+    "expected": "原文件和可用旧工具环境不变",
+    "variants": [
+      "uv",
+      "network",
+      "write"
+    ],
+    "domain": "playwright_runtime",
+    "tags": [
+      "@PW_008",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "INT_001": {
+    "action": "zip",
+    "title": "节点源码与 ZIP 往返",
+    "expected": "重新加载的源码 schema 版本一致",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_001",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_002": {
+    "action": "source-invalid",
+    "title": "非法源码不覆盖",
+    "expected": "源码和注册信息保持不变",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_002",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_003": {
+    "action": "gui-usage",
+    "title": "两端引用统计一致",
+    "expected": "工作流节点 ID 与数量一致",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_003",
+      "@gui",
+      "@qt",
+      "@p2"
+    ]
+  },
+  "INT_004": {
+    "action": "github-nodes",
+    "title": "GitHub 节点真实落盘管理",
+    "expected": "导入更新移除只影响目标仓库",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_004",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_005": {
+    "action": "official",
+    "title": "官方更新检查与显式安装",
+    "expected": "检查不安装且指定版本可加载",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_005",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_006": {
+    "action": "sync",
+    "title": "GitHub 工作流同步往返",
+    "expected": "保存配置生效且远端与本地模型一致",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_006",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_007": {
+    "action": "credential",
+    "title": "凭据保护与删除",
+    "expected": "配置日志无明文且删除不复活",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_007",
+      "@e2e",
+      "@p1"
+    ]
+  },
+  "INT_008": {
+    "action": "oauth",
+    "title": "GitHub 登录与退出",
+    "expected": "凭据安全保存且退出后不可用",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_008",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_009": {
+    "action": "uv",
+    "title": "UV 路径镜像环境管理",
+    "expected": "真实 argv 使用所存路径镜像和环境",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_009",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_010": {
+    "action": "remote-failure",
+    "title": "服务故障保护已装资源",
+    "expected": "既有文件和凭据不变且退出失败",
+    "variants": [
+      "github-import",
+      "github-update",
+      "official-install",
+      "sync-push",
+      "sync-pull"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_010",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "INT_011": {
+    "action": "mcp",
+    "title": "MCP Tool 真实执行",
+    "expected": "工具参数结果与下游输入正确且进程回收",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_011",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "INT_012": {
+    "action": "live-services",
+    "title": "外部服务现场验收",
+    "expected": "逐项有现场结果且未配置项不冒充通过",
+    "variants": [
+      "default"
+    ],
+    "domain": "integrations",
+    "tags": [
+      "@INT_012",
+      "@live",
+      "@manual",
+      "@p2"
+    ]
+  },
+  "PERSIST_001": {
+    "action": "retry",
+    "title": "占用后有限重试成功",
+    "expected": "配置有效且无临时文件",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@PERSIST_001",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "PERSIST_002": {
+    "action": "write-failure",
+    "title": "永久错误保留旧配置",
+    "expected": "错误传播且旧文件完整",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@PERSIST_002",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "PERSIST_003": {
+    "action": "concurrent",
+    "title": "多进程更新不丢提交",
+    "expected": "所有成功提交的配置和历史可重读",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@PERSIST_003",
+      "@e2e",
+      "@p1"
+    ]
+  },
+  "PERSIST_004": {
+    "action": "save-order",
+    "title": "保存顺序与显式删除",
+    "expected": "旧快照不会恢复已删除数据",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@PERSIST_004",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "PERSIST_005": {
+    "action": "windows-save",
+    "title": "Windows 原失败路径",
+    "expected": "真实 Windows 上重复保存无占用错误",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@PERSIST_005",
+      "@windows",
+      "@p1"
+    ]
+  },
+  "CI_001": {
+    "action": "ci-branches",
+    "title": "开发分支均有检查",
+    "expected": "Linux 与 Windows 均覆盖 dev 和 main",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@CI_001",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "CI_002": {
+    "action": "ci-sha",
+    "title": "发布校验同一 SHA",
+    "expected": "只允许全部必需检查绿色的同一 SHA",
+    "variants": [
+      "green",
+      "old-sha",
+      "windows-failed",
+      "linux-missing",
+      "running"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@CI_002",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "CI_003": {
+    "action": "ci-coverage",
+    "title": "语句分支分别达标",
+    "expected": "门槛分别计算且不能用混合 Cover 代替",
+    "variants": [
+      "85/75",
+      "84.9/90",
+      "95/74.9"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@CI_003",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "CI_004": {
+    "action": "ci-incomplete",
+    "title": "验收缺席不是成功",
+    "expected": "缺少场景步骤平台或证据时验收失败",
+    "variants": [
+      "undefined",
+      "empty",
+      "skip",
+      "help-only",
+      "packaged-missing",
+      "live-missing"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@CI_004",
+      "@contract",
+      "@p1"
+    ]
+  },
+  "CI_005": {
+    "action": "ci-performance",
+    "title": "性能独立度量",
+    "expected": "性能无 coverage 且平台任务正确",
+    "variants": [
+      "default"
+    ],
+    "domain": "persistence_ci",
+    "tags": [
+      "@CI_005",
+      "@contract",
+      "@p2"
+    ]
+  },
+  "DIST_001": {
+    "action": "package-cli",
+    "title": "任意目录运行成品 CLI",
+    "expected": "中文输出和 JSON 正确且不启动 GUI",
+    "variants": [
+      "msi",
+      "portable"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_001",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_002": {
+    "action": "package-tool",
+    "title": "成品录制依赖安装",
+    "expected": "无开发 Python 仍使用真实工具解释器",
+    "variants": [
+      "msi",
+      "portable"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_002",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_003": {
+    "action": "package-register",
+    "title": "portable PATH 注册隔离",
+    "expected": "只改变自己用户 PATH 项",
+    "variants": [
+      "default"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_003",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_004": {
+    "action": "package-msi-path",
+    "title": "MSI PATH 所有权",
+    "expected": "不移除安装器管理的 PATH 项",
+    "variants": [
+      "default"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_004",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_005": {
+    "action": "package-history",
+    "title": "成品两端工作流历史共享",
+    "expected": "同一工作区配置和报告可读取",
+    "variants": [
+      "default"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_005",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_006": {
+    "action": "package-update",
+    "title": "更新检查与确认语义",
+    "expected": "检查不安装且明确确认后才交接",
+    "variants": [
+      "default"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_006",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_007": {
+    "action": "package-bad-hash",
+    "title": "更新包校验失败",
+    "expected": "安装器不启动且用户数据不变",
+    "variants": [
+      "default"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_007",
+      "@windows",
+      "@packaged",
+      "@p2"
+    ]
+  },
+  "DIST_008": {
+    "action": "package-record",
+    "title": "真实 Chrome 录制往返",
+    "expected": "实际录制回填且 GUI 可执行",
+    "variants": [
+      "msi",
+      "portable"
+    ],
+    "domain": "desktop_distribution",
+    "tags": [
+      "@DIST_008",
+      "@windows",
+      "@packaged",
+      "@live",
+      "@manual",
+      "@p2"
+    ]
+  }
+}

@@ -2,14 +2,15 @@ name: Test (Linux)
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     env:
+      QT_QPA_PLATFORM: offscreen
       PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
     strategy:
       matrix:
@@ -36,18 +37,28 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install -e ".[test,gui,serve]"
 
       - name: Create official_nodes directory
         run: |
           mkdir -p official_nodes
           echo '{"repo_name":"mozikit-official-nodes","repo_version":"0.0.0","nodes":{}}' > official_nodes/manifest.json
 
-      - name: Run unit tests
+      - name: Run functional and acceptance coverage
         run: |
-          python -m pytest test/unit/ -v --tb=short -x
+          python -m pytest -q -m "not packaged and not live and not windows and not performance" --cov=src --cov-branch --cov-report=json:coverage.json --junitxml=tests.xml --acceptance-report=acceptance.json
+          python tools/check_coverage.py coverage.json
+          python tools/check_acceptance.py acceptance.json
 
-      - name: Run integration tests
-        run: |
-          python -m pytest test/integration/ -v --tb=short -x
+      - name: Run performance without coverage
+        run: python -m pytest test/unit/test_cli_performance.py -q
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.python-version }}-verification
+          path: |
+            coverage.json
+            tests.xml
+            acceptance.json

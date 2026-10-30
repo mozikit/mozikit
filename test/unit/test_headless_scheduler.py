@@ -257,9 +257,12 @@ class TestHeadlessSchedulerScheduleCheck(unittest.TestCase):
         past = datetime(2020, 1, 1, 0, 0, 0).strftime("%Y-%m-%d %H:%M:%S")
         self.scheduler.update_task(task_id, next_run=past)
 
-        # 没有真实的工作流文件，_execute_task 会失败
-        # 但 _check_schedules 应更新 next_run 为未来时间
+        # Wait for the actual failed dispatch before removing its configuration.
+        from threading import Event
+        finished = Event()
+        self.scheduler.on_task_failed(lambda *_: finished.set())
         self.scheduler._check_schedules()
+        self.assertTrue(finished.wait(5))
 
         task = self.scheduler.get_task(task_id)
         # next_run 应已更新为未来时间

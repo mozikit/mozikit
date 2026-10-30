@@ -1,0 +1,27 @@
+{
+  "source_ref": "REPLACE_WITH_FULL_TESTED_COMMIT_SHA",
+  "operator": "REPLACE_WITH_TESTER_NAME",
+  "observed_at": "2026-10-30T00:00:00Z",
+  "disposable_windows_host": true,
+  "packages": {
+    "msi": {
+      "distribution": {"path": "release/mozikit-x64.msi", "sha256": "REPLACE_WITH_SHA256"},
+      "cli": {"path": "C:/Program Files/Mozikit/mozikit.exe", "sha256": "REPLACE_WITH_SHA256"},
+      "desktop": {"path": "C:/Program Files/Mozikit/MozikitDesktop.exe", "sha256": "REPLACE_WITH_SHA256"}
+    },
+    "portable": {
+      "distribution": {"path": "release/mozikit-portable.zip", "sha256": "REPLACE_WITH_SHA256"},
+      "cli": {"path": "C:/acceptance/portable/Mozikit/mozikit.exe", "sha256": "REPLACE_WITH_SHA256"},
+      "desktop": {"path": "C:/acceptance/portable/Mozikit/MozikitDesktop.exe", "sha256": "REPLACE_WITH_SHA256"}
+    }
+  },
+  "observations": {
+    "DIST_005:default": {
+      "mode": "manual",
+      "cli_history_visible_in_gui": false,
+      "gui_report_readable_from_cli": false,
+      "shared_workspace_and_config": false,
+      "files": [{"path": "evidence/shared-history.png", "sha256": "REPLACE_WITH_SHA256"}]
+    }
+  }
+}

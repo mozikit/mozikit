@@ -35,7 +35,8 @@ def test_workdir_frozen_uses_appdata():
          patch("os.chdir") as mock_chdir:
         _prepare_runtime_workdir()
 
-    expected = Path("C:/Users/tester/AppData/Roaming/Mozikit")
+    expected = (Path("C:/Users/tester/AppData/Roaming/Mozikit") if os.name == "nt"
+                else Path.home() / ".local" / "share" / "Mozikit")
     mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
     mock_chdir.assert_called_once_with(expected)
 
@@ -49,7 +50,7 @@ def test_workdir_frozen_falls_back_to_home():
          patch("os.chdir") as mock_chdir:
         _prepare_runtime_workdir()
 
-    expected = Path("C:/Users/tester/AppData/Roaming/Mozikit")
+    expected = Path("C:/Users/tester") / ("AppData/Roaming/Mozikit" if os.name == "nt" else ".local/share/Mozikit")
     mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
     mock_chdir.assert_called_once_with(expected)
 

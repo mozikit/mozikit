@@ -6,6 +6,7 @@
 import json
 import threading
 import uuid
+from copy import deepcopy
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -45,8 +46,8 @@ def write_workflow_file(file_path: str, workflow_data: dict):
     workflow_data["created_at"] = created_at
     workflow_data["updated_at"] = now
 
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(workflow_data, f, ensure_ascii=False, indent=2)
+    from ._file_utils import atomic_write
+    atomic_write(file_path, json.dumps(workflow_data, ensure_ascii=False, indent=2))
 
 
 @dataclass
@@ -116,9 +117,9 @@ class WorkflowExecutor:
             EdgeInfo(from_node_id, from_port_name, to_node_id, to_port_name)
         )
 
-        if from_node_id in self.nodes:
+        if from_node_id in self.nodes and to_node_id not in self.nodes[from_node_id].outputs:
             self.nodes[from_node_id].outputs.append(to_node_id)
-        if to_node_id in self.nodes:
+        if to_node_id in self.nodes and from_node_id not in self.nodes[to_node_id].inputs:
             self.nodes[to_node_id].inputs.append(from_node_id)
 
     def request_stop(self):
@@ -290,6 +291,7 @@ class WorkflowExecutor:
 
         if not self.uv_manager.create_workflow_env(self.workflow_name, python_version):
             return False
+        getattr(self, '_raw_document', {}).pop('environment_relocated', None)
 
         if resolved_packages:
             logger.info("正在安装工作流依赖: %s", resolved_packages)
@@ -427,57 +429,11 @@ class WorkflowExecutor:
         return downstream
 
     def _get_versioned_script_path(self, node: NodeBase) -> str:
-        """获取版本感知的脚本路径
-
-        如果工作流中的节点指定了版本，尝试从对应版本目录加载源代码，
-        并生成到工作流脚本目录中。
-        """
-        from src.core.custom_node_manager import CustomNodeManager
-        from src.core.node_repo_manager import NodeRepoManager
-        from src.core.node_version_manager import NodeVersionManager
-
-        node_type_str = (
-            node.node_type.value
-            if hasattr(node.node_type, "value")
-            else str(node.node_type)
-        )
-
-        # 如果节点有版本绑定，尝试获取该版本的源代码
+        """Use the same version resolution as node loading and the Qt adapter."""
+        from .node_registry import get_registry
         if node.version:
-            # 检查官方节点
-            repo_mgr = NodeRepoManager(self._user_data_dir)
-            official_vm = repo_mgr.version_manager
-            resolved_version, node_py = official_vm.resolve_version_for_execution(
-                node_type_str, node.version
-            )
-            if node_py and node_py.exists():
-                with open(node_py, "r", encoding="utf-8") as f:
-                    node.source_code = f.read()
-                return node.generate_script(
-                    str(
-                        self.uv_manager.get_workflow_dir(self.workflow_name) / "scripts"
-                    )
-                )
-
-            # 检查自定义节点
-            custom_mgr = CustomNodeManager(self._user_data_dir)
-            custom_vm = custom_mgr.version_manager
-            resolved_version, node_py = custom_vm.resolve_version_for_execution(
-                node_type_str, node.version
-            )
-            if node_py and node_py.exists():
-                with open(node_py, "r", encoding="utf-8") as f:
-                    node.source_code = f.read()
-                return node.generate_script(
-                    str(
-                        self.uv_manager.get_workflow_dir(self.workflow_name) / "scripts"
-                    )
-                )
-
-        # 无版本绑定或版本未找到，使用注册表中的源代码
-        return node.generate_script(
-            str(self.uv_manager.get_workflow_dir(self.workflow_name) / "scripts")
-        )
+            node.source_code = get_registry().get_source_code(node.node_type, version=node.version)
+        return node.generate_script(str(self.uv_manager.get_workflow_dir(self.workflow_name) / 'scripts'))
 
     def generate_scripts(self, node_ids: Optional[set[str]] = None) -> Dict[str, str]:
         """
@@ -818,6 +774,11 @@ class WorkflowExecutor:
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
         report["artifact_dir"] = str(artifact_dir)
+        from .execution_snapshots import ExecutionSnapshots
+        try:
+            ExecutionSnapshots().save(self, report)
+        except (ValueError, TypeError, OSError) as exc:
+            report['snapshot_unavailable'] = str(exc)
 
         with open(artifact_dir / "run.json", "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
@@ -884,6 +845,7 @@ class WorkflowExecutor:
             最终输出数据，或结构化运行报告
         """
         report = self._create_run_report(trigger_type)
+        self._run_initial_data = deepcopy(initial_data or {})
         report_started_at = datetime.fromisoformat(report["started_at"])
         stdout_blocks: List[str] = []
         stderr_blocks: List[str] = []
@@ -946,6 +908,8 @@ class WorkflowExecutor:
                         timespec="seconds"
                     )
                     cached_report["stdout"] = "[已缓存，跳过执行]"
+                    cached_report['reused'] = True
+                    cached_report['source_run_id'] = getattr(self, '_reuse_run_id', None)
                     report["nodes"].append(cached_report)
                     if on_node_complete:
                         on_node_complete(cached_report)
@@ -1104,7 +1068,8 @@ class WorkflowExecutor:
         Returns:
             dict: 工作流数据字典
         """
-        workflow_data = {
+        workflow_data = deepcopy(getattr(self, '_raw_document', {}))
+        workflow_data.update({
             "version": 2,
             "workflow_id": self.workflow_id,
             "workflow_name": self.workflow_name,
@@ -1121,7 +1086,7 @@ class WorkflowExecutor:
                 for e in self.edges
             ],
             "dependencies": self._collect_node_dependencies(),
-        }
+        })
 
         if canvas_state is None:
             canvas_state = self.canvas_state
@@ -1129,7 +1094,10 @@ class WorkflowExecutor:
             workflow_data["canvas_state"] = canvas_state
 
         for node in self.nodes.values():
-            node_dict = node.to_dict()
+            original = next((item for item in getattr(self, '_raw_document', {}).get('nodes', [])
+                             if item.get('node_id') == node.node_id), {})
+            node_dict = deepcopy(original)
+            node_dict.update(node.to_dict())
             if node_positions and node.node_id in node_positions:
                 node_dict["position"] = node_positions[node.node_id]
             workflow_data["nodes"].append(node_dict)
@@ -1158,6 +1126,7 @@ class WorkflowExecutor:
             workflow_data = json.load(f)
 
         executor = cls(workflow_data["workflow_name"], uv_manager)
+        executor._raw_document = deepcopy(workflow_data)
         executor.workflow_id = workflow_data.get("workflow_id") or str(Path(file_path).resolve())
         executor.active = workflow_data.get("active", False) is True
         triggers = workflow_data.get("triggers", [])
@@ -1166,6 +1135,8 @@ class WorkflowExecutor:
 
         for node_data in workflow_data["nodes"]:
             node = NodeBase.from_dict(node_data)
+            node.inputs = []
+            node.outputs = []
             executor.add_node(node)
 
         version = workflow_data.get("version", 1)

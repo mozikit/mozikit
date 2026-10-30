@@ -64,7 +64,7 @@ def test_cli_launcher_configures_utf8_console_streams(monkeypatch):
 
 def test_bundled_uv_path_uses_frozen_runtime_directory(tmp_path, monkeypatch):
     install_dir = tmp_path / "Mozikit"
-    uv_path = install_dir / "runtime" / "uv.exe"
+    uv_path = install_dir / "runtime" / ("uv.exe" if os.name == "nt" else "uv")
     uv_path.parent.mkdir(parents=True)
     uv_path.write_bytes(b"bundled uv test marker")
 
@@ -75,6 +75,7 @@ def test_bundled_uv_path_uses_frozen_runtime_directory(tmp_path, monkeypatch):
     assert get_bundled_uv_path() == uv_path.resolve()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows AppData migration")
 def test_legacy_roaming_data_is_copied_without_overwriting_local_data(tmp_path, monkeypatch):
     roaming = tmp_path / "Roaming"
     local = tmp_path / "Local"
@@ -143,14 +144,15 @@ def test_uv_resolution_precedence(tmp_path, monkeypatch):
 
 
 def test_cli_registration_path_helpers_preserve_unrelated_entries():
-    original = os.pathsep.join([r"C:\Windows\System32", r"C:\Tools"])
-    merged = merge_path_entry(original, r"C:\Mozikit")
-    merged_again = merge_path_entry(merged, r"c:\mozikit\.")
-
-    assert merged_again.count(r"C:\Mozikit") == 1
-    assert r"C:\Windows\System32" in merged_again
-    assert r"C:\Tools" in merged_again
-    assert remove_path_entry(merged_again, r"C:\Mozikit") == original
+    if os.name == "nt":
+        entries, entry, again = [r"C:\Windows\System32", r"C:\Tools"], r"C:\Mozikit", r"c:\mozikit\."
+    else:
+        entries, entry, again = ["/usr/bin", "/opt/tools"], "/opt/mozikit", "/opt/mozikit/."
+    original = os.pathsep.join(entries)
+    merged = merge_path_entry(merge_path_entry(original, entry), again)
+    assert merged.count(entry) == 1
+    assert all(value in merged for value in entries)
+    assert remove_path_entry(merged, entry) == original
 
 
 def test_cli_registration_reports_msi_and_user_ownership_separately():

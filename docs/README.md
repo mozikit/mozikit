@@ -16,6 +16,8 @@
 ### 🛠️ 开发文档 (`development/`)
 面向开发者的开发指南和技术文档。
 
+- [CLI / GUI 验证记录](development/CLI_GUI_PARITY_VALIDATION.md) - 实测结果和未完成的外部验收
+- [CLI / GUI 等价性实施计划](development/CLI_GUI_PARITY_PLAN.md) - 工作包、feature、覆盖率与平台门槛
 - [构建指南](development/BUILD_GUIDE.md) - 项目构建和打包
 - [设置功能开发](development/SETTINGS_FEATURE.md) - 设置功能开发说明
 - [新功能开发指南](development/NEW_FEATURES_GUIDE.md) - 功能开发流程

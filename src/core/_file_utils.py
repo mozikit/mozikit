@@ -5,6 +5,9 @@ import json
 import os
 import tempfile
 import threading
+import time
+from copy import deepcopy
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +29,16 @@ def atomic_write(path: Path | str, content: str | bytes) -> None:
     try:
         with open(fd, mode, encoding=encoding) as f:
             f.write(content)
-        os.replace(tmp, str(path))
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(6):
+            try:
+                os.replace(tmp, str(path))
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.02 * (2 ** attempt))
     except Exception:
         try:
             os.unlink(tmp)
@@ -35,14 +47,19 @@ def atomic_write(path: Path | str, content: str | bytes) -> None:
         raise
 
 
-def atomic_write_json(path: Path | str, data: Any) -> None:
+def atomic_write_json(path: Path | str, data: Any) -> Future:
     """异步（后台线程）原子 JSON 写入。"""
+    future = Future()
+    snapshot = deepcopy(data)
     def _do():
         try:
-            atomic_write_json_sync(path, data)
+            atomic_write_json_sync(path, snapshot)
+            future.set_result(None)
         except Exception as e:
             logger.error("atomic_write_json failed: %s", e)
+            future.set_exception(e)
     threading.Thread(target=_do, daemon=True).start()
+    return future
 
 
 def atomic_write_json_sync(path: Path | str, data: Any) -> None:

@@ -117,6 +117,16 @@ class UVManager:
         """
         workflow_dir = self.get_workflow_dir(workflow_name)
         venv_path = self.get_venv_path(workflow_name)
+        workflow_file = workflow_dir / 'workflow.json'
+        relocated = False
+        if workflow_file.is_file():
+            try:
+                relocated = json.loads(workflow_file.read_text(encoding='utf-8')).get('environment_relocated', False)
+            except (ValueError, OSError):
+                pass
+        if relocated and venv_path.exists():
+            import shutil
+            shutil.rmtree(venv_path)
         
         # 如果已存在，跳过创建
         if venv_path.exists():
@@ -152,6 +162,11 @@ class UVManager:
             )
             
             if result.returncode == 0:
+                if relocated and workflow_file.is_file():
+                    from ._file_utils import atomic_write
+                    document = json.loads(workflow_file.read_text(encoding='utf-8'))
+                    document.pop('environment_relocated', None)
+                    atomic_write(workflow_file, json.dumps(document, ensure_ascii=False, indent=2))
                 logger.info("成功创建虚拟环境: %s", venv_path)
                 return True
             else:
@@ -787,7 +802,12 @@ class UVManager:
     
     def _load_mirror_config(self):
         """加载镜像配置"""
-        # 检查配置文件
+        from .config_manager import ConfigManager
+        saved = ConfigManager().config.get('uv_mirror')
+        if isinstance(saved, str) and saved:
+            self.custom_mirror = saved
+            return
+        # Legacy ~/.uv/uv.toml remains a read-only fallback.
         config_file = os.path.join(os.path.expanduser("~"), ".uv", "uv.toml")
         if os.path.exists(config_file):
             try:
@@ -808,36 +828,16 @@ class UVManager:
             self.custom_mirror = env_mirror
     
     def _save_mirror_config(self):
-        """保存镜像配置（异步，原子写入）"""
-        if not self.custom_mirror:
-            return
-        os.environ["UV_INDEX_URL"] = self.custom_mirror
-        mirror = self.custom_mirror
-
-        def _do():
-            try:
-                from src.core._file_utils import atomic_write
-                config_dir = Path.home() / ".uv"
-                config_dir.mkdir(parents=True, exist_ok=True)
-                config_file = config_dir / "uv.toml"
-                content = config_file.read_text("utf-8") if config_file.exists() else ""
-                import re
-                if "[pip]" in content:
-                    content = re.sub(
-                        r'index-url\s*=\s*".*?"',
-                        f'index-url = "{mirror}"',
-                        content,
-                    )
-                else:
-                    if content and not content.endswith("\n"):
-                        content += "\n"
-                    content += f'[pip]\nindex-url = "{mirror}"\n'
-                atomic_write(config_file, content)
-            except Exception as e:
-                logger.error("保存镜像配置时出错: %s", e)
-
-        import threading
-        threading.Thread(target=_do, daemon=True).start()
+        """Persist in the shared app configuration before returning."""
+        from .config_manager import ConfigManager
+        manager = ConfigManager()
+        if self.custom_mirror:
+            manager.config['uv_mirror'] = self.custom_mirror
+            os.environ['UV_INDEX_URL'] = self.custom_mirror
+        else:
+            manager.config.pop('uv_mirror', None)
+            os.environ.pop('UV_INDEX_URL', None)
+        manager.save_config_sync()
     
     def get_current_mirror(self) -> str:
         """获取当前使用的镜像地址"""

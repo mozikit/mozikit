@@ -28,7 +28,9 @@ def _errors(function):
     def invoke(*args, **kwargs):
         try:
             return function(*args, **kwargs)
-        except (ValueError, OSError, SyntaxError, subprocess.SubprocessError, MozikitError) as exc:
+        except typer.Exit:
+            raise
+        except (ValueError, OSError, RuntimeError, SyntaxError, subprocess.SubprocessError, MozikitError) as exc:
             typer.echo(f"错误: {exc}", err=True)
             raise typer.Exit(1)
     return invoke
@@ -213,11 +215,8 @@ def register(app, node_app, workflow_app, env_app, config_app):
     @_errors
     def script_install_runtime():
         """通过 UV 安装 Playwright 录制工具。"""
-        from .core.uv_manager import UVManager
-        uv = UVManager().get_preferred_uv_path()
-        if not uv:
-            raise ValueError("请先安装 UV: env install-uv")
-        subprocess.run([uv, "pip", "install", "--python", sys.executable, "playwright"], check=True)
+        from .core.playwright_runtime import PlaywrightRuntime
+        _json(PlaywrightRuntime().install())
 
     def script_node(workflow, node_id):
         path, document = WorkflowService().read(workflow)
@@ -277,8 +276,9 @@ def register(app, node_app, workflow_app, env_app, config_app):
         script_node(workflow, node_id)
         with tempfile.TemporaryDirectory(prefix="mozikit-codegen-") as directory:
             output = Path(directory) / "recording.py"
-            command = [sys.executable, "-m", "playwright", "codegen", "--target", "python", "-o", str(output), "--browser", "chromium", "--channel", "chrome"]
-            subprocess.run(command + ([url] if url else []), check=True)
+            from .core.playwright_runtime import PlaywrightRuntime
+            command = PlaywrightRuntime().recording_command(output, url)
+            subprocess.run(command, check=True, stdout=sys.stderr)
             if not output.exists() or not output.read_text(encoding="utf-8").strip():
                 raise ValueError("录制未生成脚本，原有配置已保留")
             save_script(workflow, node_id, output.read_text(encoding="utf-8"))

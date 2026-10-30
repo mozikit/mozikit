@@ -124,6 +124,10 @@ class NodeBase(ABC):
         node_def = registry.get_node(node_type_str)
         if node_def:
             node.source_code = node_def.source_code
+            if version:
+                from src.core.node_registry import NodeRegistry
+                if isinstance(registry, NodeRegistry):
+                    node.source_code = registry.get_source_code(node_type_str, version=version)
         else:
             logger.warning("未找到节点类型 %s 的定义", node_type_str)
 

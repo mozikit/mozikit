@@ -2,6 +2,7 @@
 AI 自定义节点生成服务
 """
 import json
+import ast
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
@@ -98,7 +99,7 @@ class AINodeGenerationService:
                 return json.loads(resp.read().decode("utf-8"))
         except error.HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="ignore")
-            message = error_body or str(exc)
+            message = (error_body or str(exc)).replace(str(self.ai_settings.get('api_key') or '\x00'), '******')
             raise AINodeGenerationError(ErrorCode.AI_API_FAILED, f"AI 接口调用失败: HTTP {exc.code} {message}") from exc
         except error.URLError as exc:
             raise AINodeGenerationError(ErrorCode.AI_CONNECTION_FAILED, f"AI 接口连接失败: {exc.reason}") from exc
@@ -196,8 +197,16 @@ class AINodeGenerationService:
             raise AINodeGenerationError(ErrorCode.AI_INVALID_RESPONSE, "dependencies 必须是字符串数组")
 
         source_code = result_data["source_code"]
-        if "def execute(self, input_data" not in source_code:
+        if not isinstance(source_code, str) or not isinstance(result_data['description'], str):
+            raise AINodeGenerationError(ErrorCode.AI_INVALID_RESPONSE, 'description/source_code 必须是字符串')
+        try:
+            tree = ast.parse(source_code)
+        except SyntaxError as exc:
+            raise AINodeGenerationError(ErrorCode.AI_GENERATION_FAILED, f'生成代码语法错误: {exc.msg}') from exc
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'execute']
+        arguments = functions[0].args.posonlyargs + functions[0].args.args if functions else []
+        if len(arguments) < 2 or [arg.arg for arg in arguments[:2]] != ['self', 'input_data']:
             raise AINodeGenerationError(ErrorCode.AI_GENERATION_FAILED, "生成代码缺少 execute(self, input_data) 函数")
 
-        if "return" not in source_code:
+        if not any(isinstance(node, ast.Return) for node in ast.walk(functions[0])):
             raise AINodeGenerationError(ErrorCode.AI_GENERATION_FAILED, "生成代码缺少返回值")

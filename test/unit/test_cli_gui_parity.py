@@ -220,6 +220,8 @@ def test_source_commands_validate_before_writing(isolated, monkeypatch, tmp_path
 
 def test_record_saves_only_successful_codegen(isolated, monkeypatch, tmp_path):
     import subprocess
+    monkeypatch.setattr('src.core.playwright_runtime.PlaywrightRuntime.available', lambda self: True)
+    monkeypatch.setattr('src.core.playwright_runtime.PlaywrightRuntime.python', lambda self: Path(__import__('sys').executable))
     isolated[2].metadata = {"node_kind": "playwright_script"}
     path, _ = write_workflow(tmp_path)
     before = path.read_bytes()

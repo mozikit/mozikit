@@ -5,6 +5,9 @@
 
 import json
 import os
+from copy import deepcopy
+from contextlib import contextmanager
+from threading import RLock
 from pathlib import Path
 
 from src.core.credential_store import (
@@ -15,6 +18,16 @@ from src.core.credential_store import (
 from src.core.log_manager import get_logger
 
 logger = get_logger("config_manager")
+
+
+def _locked_mutation(function):
+    """Keep mutation and the saving snapshot in the same instance transaction."""
+    from functools import wraps
+    @wraps(function)
+    def invoke(self, *args, **kwargs):
+        with self._write_lock:
+            return function(self, *args, **kwargs)
+    return invoke
 
 
 class ConfigManager:
@@ -80,6 +93,8 @@ class ConfigManager:
         if use_default_path:
             self._migrate_legacy_config()
         self.config = self._load_config()
+        self._baseline = deepcopy(self.config)
+        self._write_lock = RLock()
 
     def _migrate_legacy_config(self) -> None:
         """将旧的工作目录配置复制到统一的 App Data 配置路径。
@@ -113,14 +128,24 @@ class ConfigManager:
         return {}
 
     def save_config(self):
-        """保存配置文件（异步，原子写入）"""
-        from src.core._file_utils import atomic_write_json
-        atomic_write_json(self.config_file, self.config.copy())
+        """Commit before returning: no detached writer can overwrite a later save."""
+        return self.save_config_sync()
 
     def save_config_sync(self):
         """同步保存配置文件（用于关闭窗口等需要等待保存完成的场景）"""
-        from src.core._file_utils import atomic_write_json_sync
-        atomic_write_json_sync(self.config_file, self.config)
+        from src.core.config_transactions import commit_config
+        with self._write_lock:
+            merged = commit_config(self.config_file, self._baseline, deepcopy(self.config))
+            self.config = merged
+            self._baseline = deepcopy(merged)
+
+    @contextmanager
+    def transaction(self):
+        """Hold the instance lock before the disk lock, including related file work."""
+        from .config_transactions import configuration_lock
+        with self._write_lock, configuration_lock(self.config_file):
+            self.save_config_sync()
+            yield self
 
     def get_dock_state(self, dock_name: str) -> dict:
         """获取dock窗口状态
@@ -135,6 +160,7 @@ class ConfigManager:
             dock_name, {"visible": False, "width": 300, "height": 240}
         )
 
+    @_locked_mutation
     def set_dock_state(
         self,
         dock_name: str,
@@ -209,6 +235,7 @@ class ConfigManager:
         """获取窗口几何信息"""
         return self.config.get("window_geometry", {})
 
+    @_locked_mutation
     def set_window_geometry(self, x: int, y: int, width: int, height: int):
         """设置窗口几何信息"""
         self.config["window_geometry"] = {
@@ -230,6 +257,7 @@ class ConfigManager:
                 merged["api_key"] = decrypted
         return merged
 
+    @_locked_mutation
     def set_ai_settings(self, settings: dict):
         """设置 AI 生成配置"""
         merged = self.DEFAULT_AI_SETTINGS.copy()
@@ -246,6 +274,7 @@ class ConfigManager:
         """获取最近打开的工作流"""
         return self.config.get("recent_workflows", [])
 
+    @_locked_mutation
     def add_recent_workflow(self, workflow_name: str, workflow_path: str):
         """添加最近打开的工作流"""
         if "recent_workflows" not in self.config:
@@ -277,6 +306,7 @@ class ConfigManager:
                 return task
         return None
 
+    @_locked_mutation
     def add_scheduled_task(self, task: dict) -> str:
         """添加定时任务
 
@@ -302,6 +332,7 @@ class ConfigManager:
         self.save_config()
         return task.get("id")
 
+    @_locked_mutation
     def update_scheduled_task(self, task_id: str, updates: dict) -> bool:
         """更新定时任务"""
         for i, task in enumerate(self.config.get("scheduled_tasks", [])):
@@ -311,6 +342,7 @@ class ConfigManager:
                 return True
         return False
 
+    @_locked_mutation
     def delete_scheduled_task(self, task_id: str) -> bool:
         """删除定时任务"""
         tasks = self.config.get("scheduled_tasks", [])
@@ -322,6 +354,7 @@ class ConfigManager:
                 return True
         return False
 
+    @_locked_mutation
     def set_scheduled_tasks(self, tasks: list):
         """设置所有定时任务"""
         self.config["scheduled_tasks"] = tasks
@@ -346,6 +379,7 @@ class ConfigManager:
 
         return history[:limit]
 
+    @_locked_mutation
     def add_execution_record(self, record: dict):
         """添加运行记录
 
@@ -420,6 +454,7 @@ class ConfigManager:
                 merged["token"] = decrypted
         return merged
 
+    @_locked_mutation
     def set_github_settings(self, settings: dict):
         """设置 GitHub 认证设置"""
         merged = self.DEFAULT_GITHUB_SETTINGS.copy()
@@ -448,6 +483,7 @@ class ConfigManager:
         merged.update(settings)
         return merged
 
+    @_locked_mutation
     def set_sync_settings(self, settings: dict):
         """设置工作流同步设置"""
         merged = self.DEFAULT_SYNC_SETTINGS.copy()
@@ -464,6 +500,7 @@ class ConfigManager:
         merged.update(settings)
         return merged
 
+    @_locked_mutation
     def set_node_repo_settings(self, settings: dict):
         """设置节点仓库设置"""
         merged = self.DEFAULT_NODE_REPO_SETTINGS.copy()
@@ -475,6 +512,7 @@ class ConfigManager:
         """获取官方节点仓库地址（镜像源配置，默认官方仓库）"""
         return self.get_node_repo_settings().get("official_repo_url", "").strip()
 
+    @_locked_mutation
     def set_official_repo_url(self, url: str):
         """设置官方节点仓库地址（镜像源配置）"""
         settings = self.get_node_repo_settings()
@@ -491,6 +529,7 @@ class ConfigManager:
         """
         return self.config.get("node_version_policy", self.DEFAULT_NODE_VERSION_POLICY)
 
+    @_locked_mutation
     def set_node_version_policy(self, policy: str):
         """设置默认节点版本策略
 
@@ -511,6 +550,7 @@ class ConfigManager:
             "node_timeout_seconds", self.DEFAULT_NODE_TIMEOUT_SECONDS
         )
 
+    @_locked_mutation
     def set_node_timeout_seconds(self, timeout: int):
         """设置节点执行超时时间（秒）"""
         self.config["node_timeout_seconds"] = max(10, min(3600, timeout))
@@ -522,6 +562,7 @@ class ConfigManager:
         """获取画布默认缩放比例"""
         return self.config.get("canvas_zoom", 1.0)
 
+    @_locked_mutation
     def set_canvas_zoom(self, zoom: float):
         """设置画布默认缩放比例"""
         self.config["canvas_zoom"] = max(0.2, min(3.0, zoom))
@@ -540,6 +581,7 @@ class ConfigManager:
         """
         return self.config.get("table_column_widths", {}).get(table_key, {})
 
+    @_locked_mutation
     def set_table_column_widths(self, table_key: str, widths: dict):
         """设置指定表格的列宽配置
 

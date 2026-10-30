@@ -22,7 +22,8 @@ def test_nightly_workflow_is_dev_sha_gated_and_idempotent():
     workflow = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
 
     assert 'ref: dev' in workflow
-    assert "actions/workflows/test_windows.yml/runs?branch=dev&head_sha=" in workflow
+    assert "tools.check_release_checks" in workflow
+    assert "actions/runs?branch=dev&head_sha=" in workflow
     assert "git tag --list 'v*-nightly.*' --points-at" in workflow
     assert "v${base_version}-nightly.${date}.${short_sha}" in workflow
     assert "prerelease: true" in workflow
@@ -31,5 +32,5 @@ def test_nightly_workflow_is_dev_sha_gated_and_idempotent():
 def test_windows_ci_runs_on_dev_for_nightly_gate():
     workflow = (ROOT / ".github" / "workflows" / "test_windows.yml").read_text(encoding="utf-8")
 
-    assert "branches: [ dev ]" in workflow
+    assert "branches: [ main, dev ]" in workflow
     assert "python -m pytest -q" in workflow

@@ -63,6 +63,7 @@ jobs:
   build_windows:
     runs-on: windows-latest
     permissions:
+      actions: read
       contents: write
     env:
       PYTHONUTF8: "1"
@@ -85,15 +86,29 @@ jobs:
         python-version: '3.13'
         cache: pip
 
+    - name: Require Linux and Windows CI for the exact source commit
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        source_sha="$(git rev-parse HEAD)"
+        gh api --header 'Accept: application/vnd.github+json' \
+          "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${source_sha}&per_page=100" > required-ci.json
+        python tools/check_release_checks.py required-ci.json "${source_sha}"
+
     - name: Install build and test dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
-        python -m pip install -e ".[gui]"
+        python -m pip install -e ".[test,gui,serve]"
         python -m pip install pytest-asyncio pyinstaller
 
-    - name: Run tests
-      run: python -m pytest -q
+    - name: Verify Windows functional coverage and business acceptance
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: |
+        python -m pytest -q -m "not packaged and not live and not performance" --cov=src --cov-branch --cov-report=json:coverage.json --acceptance-report=acceptance.json
+        python tools/check_coverage.py coverage.json
+        python tools/check_acceptance.py acceptance.json
 
     - name: Resolve release metadata
       id: release_meta
@@ -237,6 +252,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build_windows
     permissions:
+      actions: read
       contents: write
     steps:
     - name: Checkout release ref
