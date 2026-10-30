@@ -42,6 +42,9 @@ def rename(w,variant):
     w.eq('schedule target',fresh['scheduled_tasks'][0]['workflow_path'],str(target/'workflow.json'))
     w.eq('historical name preserved',fresh['execution_history'][0]['workflow_name'],'demo')
     if w.contract['action']=='gui-rename':
+        launch=w.root/'separate launch directory'
+        launch.mkdir()
+        w.monkeypatch.chdir(launch)
         clone=w.workspace/'gui-demo'/'workflow.json'
         write_document(clone,{**w.document,'workflow_name':'gui-demo'})
         (clone.parent/'input.csv').write_bytes(b'id,value\n1,42\n')

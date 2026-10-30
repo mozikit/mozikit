@@ -1002,7 +1002,8 @@ class OverviewWidget(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                workflow_dir = Path("workflows") / workflow_name
+                from src.core import resolve_workspace
+                workflow_dir = resolve_workspace() / workflow_name
                 if workflow_dir.exists():
                     WorkflowLifecycle().delete(str(workflow_dir.resolve()))
                     logger.info("工作流已删除: %s", workflow_name)

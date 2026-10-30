@@ -287,9 +287,7 @@ class WorkflowTabWidget(QWidget):
         if not self.workflow_path or self._is_modified:
             self._save_workflow_sync()
         if not self.workflow_path:
-            self.workflow_path = str(
-                Path("workflows") / self.workflow_name / "workflow.json"
-            )
+            self.workflow_path = self._workflow_file()
         workflow_path = Path(self.workflow_path).expanduser().resolve()
         if not workflow_path.is_file():
             QMessageBox.warning(self, "无法切换监听", "请先保存工作流。")
@@ -678,7 +676,7 @@ class WorkflowTabWidget(QWidget):
             trigger_type="manual",
             prepare_env=True,
             skip_successful_nodes=False,
-            workflow_path=f"workflows/{self.workflow_name}/workflow.json",
+            workflow_path=self._workflow_file(),
             config_manager=getattr(self.main_window, "config_manager", None),
             parent=self,
         )
@@ -766,7 +764,7 @@ class WorkflowTabWidget(QWidget):
             self.executor,
             trigger_type="manual",
             prepare_env=True,
-            workflow_path=f"workflows/{self.workflow_name}/workflow.json",
+            workflow_path=self._workflow_file(),
             config_manager=getattr(self.main_window, "config_manager", None),
             parent=self,
         )
@@ -909,6 +907,11 @@ class WorkflowTabWidget(QWidget):
                     5000,
                 )
 
+    def _workflow_file(self):
+        """Use the same workspace as the scanner, CLI and lifecycle service."""
+        from src.core import resolve_workspace
+        return str((resolve_workspace() / self.workflow_name / 'workflow.json').resolve())
+
     def _save_workflow(self):
         """保存工作流（异步，不阻塞UI）"""
         if self._save_worker and self._save_worker.isRunning():
@@ -929,7 +932,7 @@ class WorkflowTabWidget(QWidget):
 
             import os
 
-            save_path = f"workflows/{self.workflow_name}/workflow.json"
+            save_path = self._workflow_file()
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
             self._sync_active_property_panel()
@@ -1002,7 +1005,7 @@ class WorkflowTabWidget(QWidget):
 
             import os
 
-            save_path = f"workflows/{self.workflow_name}/workflow.json"
+            save_path = self._workflow_file()
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
             self._sync_active_property_panel()
@@ -1046,7 +1049,7 @@ class WorkflowTabWidget(QWidget):
     def _on_zoom_changed(self):
         """画布缩放比例变化时自动保存工作流"""
         # 只有已保存过的工作流才自动保存（workflow_name 不是默认的临时名称）
-        save_path = f"workflows/{self.workflow_name}/workflow.json"
+        save_path = self._workflow_file()
         if os.path.exists(save_path):
             try:
                 self._save_workflow()
@@ -1139,7 +1142,7 @@ class WorkflowTabWidget(QWidget):
         if self._is_modified:
             self._save_workflow()
 
-        workflow_path = f"workflows/{self.workflow_name}/workflow.json"
+        workflow_path = self._workflow_file()
         if not os.path.exists(workflow_path):
             # 工作流尚未保存，先保存
             self._save_workflow()
@@ -1161,7 +1164,10 @@ class WorkflowTabWidget(QWidget):
                 raise ValueError("请先停止工作流执行")
             old = resolve_workspace() / self.workflow_name / 'workflow.json'
             if old.exists():
-                WorkflowLifecycle().rename(str(old.resolve()), new_name)
+                target = WorkflowLifecycle().rename(str(old.resolve()), new_name)
+                from src.core.workflow_lifecycle import read_document
+                self.workflow_path = str(target)
+                self.executor._raw_document = read_document(target)
             return True
         except (ValueError, OSError) as exc:
             logger.error("重命名失败: %s", exc)

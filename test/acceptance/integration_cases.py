@@ -84,7 +84,7 @@ def ai(w,variant):
         after=set((w.root/'user_data').rglob('node.json')) if (w.root/'user_data').exists() else set()
         w.eq('failed generation no new definitions',after,before)
         return
-    generated=list((w.root/'user_data').rglob('node.json'))
+    generated=sorted({path.resolve() for path in (w.root/'user_data').rglob('node.json')})
     assert generated,('No real generated node persisted',w.last.exit_code,w.last.output)
     definition=json.loads(generated[0].read_text())
     expected_version='1.0.0' if action=='ai-legacy' else '2.4.0'
@@ -116,7 +116,7 @@ def ai(w,variant):
         w.application.processEvents()
         w.eq('GUI sent real HTTP request',len(state['requests']),2)
         w.eq('GUI and CLI input prompt',json.loads(state['requests'][1]['messages'][1]['content']),prompt)
-        w.eq('both nodes persisted',len(list((w.root/'user_data').rglob('node.json'))),2)
+        w.eq('both nodes persisted',len({path.resolve() for path in (w.root/'user_data').rglob('node.json')}),2)
         dialog.deleteLater()
 
 

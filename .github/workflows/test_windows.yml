@@ -104,7 +104,7 @@ jobs:
     - name: Build test MSI
       shell: pwsh
       run: |
-        choco install wixtoolset --no-progress -y
+        choco install wixtoolset --version=3.14.1 --no-progress -y
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         $wix = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*\bin\candle.exe" | Select-Object -First 1
         if (-not $wix) { throw "WiX v3 candle.exe not found" }
