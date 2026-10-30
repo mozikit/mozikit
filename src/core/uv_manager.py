@@ -117,6 +117,16 @@ class UVManager:
         """
         workflow_dir = self.get_workflow_dir(workflow_name)
         venv_path = self.get_venv_path(workflow_name)
+        workflow_file = workflow_dir / 'workflow.json'
+        relocated = False
+        if workflow_file.is_file():
+            try:
+                relocated = json.loads(workflow_file.read_text(encoding='utf-8')).get('environment_relocated', False)
+            except (ValueError, OSError):
+                pass
+        if relocated and venv_path.exists():
+            import shutil
+            shutil.rmtree(venv_path)
         
         # 如果已存在，跳过创建
         if venv_path.exists():
@@ -152,6 +162,11 @@ class UVManager:
             )
             
             if result.returncode == 0:
+                if relocated and workflow_file.is_file():
+                    from ._file_utils import atomic_write
+                    document = json.loads(workflow_file.read_text(encoding='utf-8'))
+                    document.pop('environment_relocated', None)
+                    atomic_write(workflow_file, json.dumps(document, ensure_ascii=False, indent=2))
                 logger.info("成功创建虚拟环境: %s", venv_path)
                 return True
             else:
@@ -787,7 +802,12 @@ class UVManager:
     
     def _load_mirror_config(self):
         """加载镜像配置"""
-        # 检查配置文件
+        from .config_manager import ConfigManager
+        saved = ConfigManager().config.get('uv_mirror')
+        if isinstance(saved, str) and saved:
+            self.custom_mirror = saved
+            return
+        # Legacy ~/.uv/uv.toml remains a read-only fallback.
         config_file = os.path.join(os.path.expanduser("~"), ".uv", "uv.toml")
         if os.path.exists(config_file):
             try:
@@ -808,36 +828,16 @@ class UVManager:
             self.custom_mirror = env_mirror
     
     def _save_mirror_config(self):
-        """保存镜像配置（异步，原子写入）"""
-        if not self.custom_mirror:
-            return
-        os.environ["UV_INDEX_URL"] = self.custom_mirror
-        mirror = self.custom_mirror
-
-        def _do():
-            try:
-                from src.core._file_utils import atomic_write
-                config_dir = Path.home() / ".uv"
-                config_dir.mkdir(parents=True, exist_ok=True)
-                config_file = config_dir / "uv.toml"
-                content = config_file.read_text("utf-8") if config_file.exists() else ""
-                import re
-                if "[pip]" in content:
-                    content = re.sub(
-                        r'index-url\s*=\s*".*?"',
-                        f'index-url = "{mirror}"',
-                        content,
-                    )
-                else:
-                    if content and not content.endswith("\n"):
-                        content += "\n"
-                    content += f'[pip]\nindex-url = "{mirror}"\n'
-                atomic_write(config_file, content)
-            except Exception as e:
-                logger.error("保存镜像配置时出错: %s", e)
-
-        import threading
-        threading.Thread(target=_do, daemon=True).start()
+        """Persist in the shared app configuration before returning."""
+        from .config_manager import ConfigManager
+        manager = ConfigManager()
+        if self.custom_mirror:
+            manager.config['uv_mirror'] = self.custom_mirror
+            os.environ['UV_INDEX_URL'] = self.custom_mirror
+        else:
+            manager.config.pop('uv_mirror', None)
+            os.environ.pop('UV_INDEX_URL', None)
+        manager.save_config_sync()
     
     def get_current_mirror(self) -> str:
         """获取当前使用的镜像地址"""
@@ -906,26 +906,57 @@ class UVManager:
                 creationflags=creationflags
             )
             
-            # 等待READY信号
+            # Poll a reader queue instead of blocking the main thread in ReadFile.
+            # Python's Windows signal handlers can run between these short waits.
+            import queue
             import time
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                if process.poll() is not None:
-                    logger.error("Worker进程提前退出，退出码: %s", process.returncode)
-                    return None
-                    
-                line = process.stdout.readline()
-                if line and "READY" in line:
+            channels = self._worker_channels(process)
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    line = channels.stdout.get(timeout=min(0.1, max(0.001, deadline-time.monotonic())))
+                except queue.Empty:
+                    continue
+                if line is None:
+                    break
+                if "READY" in line:
                     return process
-                time.sleep(0.1)
-                
-            process.kill()
-            logger.error("Worker进程启动超时")
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+            logger.error("Worker进程启动失败或超时: %s", ''.join(channels.stderr))
             return None
-            
+
         except Exception as e:
             logger.error("启动Worker失败: %s", e)
             return None
+
+    @staticmethod
+    def _worker_channels(process):
+        """Continuously drain both pipes; one channel set lasts for the worker."""
+        existing = getattr(process, '_mozikit_channels', None)
+        if existing is not None:
+            return existing
+        from collections import deque
+        from types import SimpleNamespace
+        import queue
+        import threading
+        channels = SimpleNamespace(stdout=queue.Queue(), stderr=deque(maxlen=200))
+        process._mozikit_channels = channels
+        def read_stdout():
+            try:
+                for line in process.stdout:
+                    channels.stdout.put(line)
+            finally:
+                channels.stdout.put(None)
+        def read_stderr():
+            for line in process.stderr:
+                channels.stderr.append(line)
+        channels.threads = [threading.Thread(target=reader, daemon=True)
+                            for reader in (read_stdout, read_stderr)]
+        for thread in channels.threads:
+            thread.start()
+        return channels
 
     def send_command_to_worker(self, process: subprocess.Popen, command: dict, timeout: int = 300, progress_callback=None, log_callback=None) -> dict:
         """
@@ -950,19 +981,20 @@ class UVManager:
             process.stdin.flush()
             
             import time
-            start_time = time.time()
+            import queue
+            channels = self._worker_channels(process)
+            deadline = time.monotonic() + timeout
             output_buffer = []
             json_started = False
             
-            while time.time() - start_time < timeout:
-                if process.poll() is not None:
-                    error = process.stderr.read() if process.stderr else "未知错误"
-                    return {"success": False, "error": f"Worker进程异常退出: {error}"}
-                
-                line = process.stdout.readline()
-                if not line:
+            while time.monotonic() < deadline:
+                try:
+                    line = channels.stdout.get(timeout=min(0.1, max(0.001, deadline-time.monotonic())))
+                except queue.Empty:
                     continue
-                
+                if line is None:
+                    return {"success": False, "error": "Worker进程异常退出: " + ''.join(channels.stderr)}
+
                 if "###PROGRESS##" in line:
                     if progress_callback:
                         try:

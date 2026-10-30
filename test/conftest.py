@@ -10,6 +10,42 @@ from unittest.mock import MagicMock
 
 import pytest
 
+
+@pytest.fixture(scope='session', autouse=True)
+def qt_application_session(request):
+    """Keep one QApplication alive across QCoreApplication and QWidget tests."""
+    if not getattr(request.config, '_pyside6_available', False):
+        yield None
+        return
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QCoreApplication, QEvent
+    application = QApplication.instance() or QApplication([])
+    yield application
+    for widget in application.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    application.processEvents()
+
+@pytest.fixture(autouse=True)
+def dispose_test_widgets(qt_application_session):
+    """Drain deferred widget deletion before the next test processes Qt events."""
+    app = qt_application_session
+    if app is None:
+        yield
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from shiboken6 import isValid
+    existing = set(app.topLevelWidgets())
+    yield
+    for widget in set(app.topLevelWidgets()) - existing:
+        if isValid(widget):
+            widget.hide()
+            widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 # 确保 src/ 可导入
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:

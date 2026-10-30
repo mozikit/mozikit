@@ -1,173 +1,77 @@
-"""
-CLI 性能/负载测试
-测试大量节点渲染、快速配置写入、调度器轮询等场景的响应时间。
-"""
+"""Measure real CLI operations separately from coverage instrumentation."""
 import json
-import os
-import sys
 import time
-import unittest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, PROJECT_ROOT)
-
+import pytest
 from typer.testing import CliRunner
+
 from src.cli import app
+from src.core.config_manager import ConfigManager
+from src.core.workflow_lifecycle import write_document
+from test.unit.test_parity_repairs import isolated
+
+pytestmark=pytest.mark.performance
 
 
-class TestCLIRunPerformance(unittest.TestCase):
-    """run 命令性能测试"""
-
-    def setUp(self):
-        self.runner = CliRunner()
-
-    @patch("src.cli._load_workflow")
-    def test_run_large_workflow_throughput(self, mock_load):
-        """100 节点工作流应在 2 秒内完成（纯 mock，无实际执行）"""
-        mock_executor = MagicMock()
-        mock_executor.workflow_name = "large_wf"
-        mock_executor.nodes = [MagicMock() for _ in range(100)]
-        mock_executor.prepare_environment.return_value = True
-        mock_executor.execute.return_value = {
-            "success": True,
-            "duration_ms": 50,
-            "workflow_name": "large_wf",
-        }
-        mock_load.return_value = mock_executor
-
-        with patch("src.cli.Path.exists", return_value=True), \
-             patch("src.cli.Path.is_file", return_value=True):
-            start = time.perf_counter()
-            result = self.runner.invoke(app, ["run", "/fake/wf.json", "--json"])
-            elapsed = time.perf_counter() - start
-
-            self.assertEqual(result.exit_code, 0)
-            self.assertLess(elapsed, 2.0,
-                f"100-node workflow took {elapsed:.2f}s, expected < 2.0s")
-            self.assertIn("success", result.output)
-
-    @patch("src.cli._load_workflow")
-    def test_run_json_flag_does_not_degrade(self, mock_load):
-        """--json 模式不应比普通模式慢超过 0.5s"""
-        mock_executor = MagicMock()
-        mock_executor.workflow_name = "wf"
-        mock_executor.nodes = [MagicMock()]
-        mock_executor.prepare_environment.return_value = True
-        mock_executor.execute.return_value = {"success": True}
-
-        mock_load.return_value = mock_executor
-
-        with patch("src.cli.Path.exists", return_value=True), \
-             patch("src.cli.Path.is_file", return_value=True):
-
-            t1 = time.perf_counter()
-            self.runner.invoke(app, ["run", "/fake/wf.json"])
-            normal_time = time.perf_counter() - t1
-
-            t2 = time.perf_counter()
-            self.runner.invoke(app, ["run", "/fake/wf.json", "--json"])
-            json_time = time.perf_counter() - t2
-
-            self.assertLess(abs(json_time - normal_time), 0.5,
-                f"JSON mode ({json_time:.3f}s) vs normal ({normal_time:.3f}s) diff too large")
+@pytest.fixture
+def large_workflow(isolated,monkeypatch):
+    from src.core import node_registry
+    monkeypatch.setattr(node_registry,'_registry_instance',None)
+    _,source,document=isolated
+    document['nodes']=[{'node_id':f'n{i}','node_type':'debug','config':{}} for i in range(100)]
+    document['edges']=[]
+    write_document(source,document)
+    return source
 
 
-class TestCLIListPerformance(unittest.TestCase):
-    """列表渲染性能测试"""
-
-    def setUp(self):
-        self.runner = CliRunner()
-
-    @patch("src.cli.get_registry")
-    def test_node_list_500_nodes(self, mock_reg):
-        """500 个节点应在 1 秒内完成列表渲染"""
-        mock_registry = MagicMock()
-        mock_registry.get_all_nodes.return_value = [
-            {
-                "name": f"Node_{i}",
-                "category": "test",
-                "source": "NodeSource.OFFICIAL",
-                "description": f"test node {i}",
-                "version": "1.0",
-            }
-            for i in range(500)
-        ]
-        mock_reg.return_value = mock_registry
-
-        start = time.perf_counter()
-        result = self.runner.invoke(app, ["node", "list"])
-        elapsed = time.perf_counter() - start
-
-        self.assertEqual(result.exit_code, 0)
-        self.assertLess(elapsed, 1.0,
-            f"500-node list took {elapsed:.2f}s, expected < 1.0s")
-        self.assertIn("Node_499", result.output)
-        self.assertIn("Node_0", result.output)
+def measured(*args):
+    start=time.perf_counter()
+    result=CliRunner().invoke(app,list(map(str,args)))
+    elapsed=time.perf_counter()-start
+    assert result.exit_code==0,(result.output,result.exception)
+    return elapsed,result.output
 
 
-class TestCLIConfigPerformance(unittest.TestCase):
-    """config 命令性能测试"""
-
-    def setUp(self):
-        self.runner = CliRunner()
-
-    def test_config_set_100_times_sequential(self):
-        """100 次连续 config set 应在 3 秒内完成"""
-        start = time.perf_counter()
-        count = 0
-        for i in range(100):
-            with patch("src.cli.ConfigManager") as mock_cfg_cls:
-                mock_mgr = MagicMock()
-                mock_mgr.config = {}
-                mock_cfg_cls.return_value = mock_mgr
-
-                result = self.runner.invoke(
-                    app, ["config", "set", f"key_{i}", str(i)]
-                )
-                if result.exit_code == 0:
-                    count += 1
-
-        elapsed = time.perf_counter() - start
-        self.assertEqual(count, 100, f"Only {count}/100 config set succeeded")
-        self.assertLess(elapsed, 3.0,
-            f"100 config set calls took {elapsed:.2f}s, expected < 3.0s")
+def test_run_100_real_nodes_throughput(large_workflow):
+    elapsed,output=measured('run',large_workflow,'--json')
+    report=json.loads(output)
+    assert report['success'] and report['completed_nodes']==100
+    assert len(report['nodes'])==100
+    assert elapsed<2.0,f'100-node execution took {elapsed:.2f}s (limit 2.0s)'
 
 
-class TestCLISchedulePerformance(unittest.TestCase):
-    """schedule 命令性能测试"""
-
-    def setUp(self):
-        self.runner = CliRunner()
-
-    @patch("src.cli.HeadlessScheduler")
-    def test_schedule_list_100_tasks(self, mock_sched_cls):
-        """100 个定时任务列表应在 1 秒内完成渲染"""
-        mock_sched = MagicMock()
-        mock_sched.list_tasks.return_value = [
-            {
-                "id": f"task-{i:04d}",
-                "workflow_name": f"wf_{i}",
-                "cron_expression": "0 * * * *",
-                "enabled": i % 2 == 0,
-                "last_run": None,
-                "next_run": "2026-06-01 00:00:00",
-            }
-            for i in range(100)
-        ]
-        mock_sched_cls.return_value = mock_sched
-
-        start = time.perf_counter()
-        result = self.runner.invoke(app, ["schedule", "list"])
-        elapsed = time.perf_counter() - start
-
-        self.assertEqual(result.exit_code, 0)
-        self.assertLess(elapsed, 1.0,
-            f"100-task list took {elapsed:.2f}s, expected < 1.0s")
-        self.assertIn("wf_0", result.output)
-        self.assertIn("wf_99", result.output)
+def test_json_output_has_bounded_overhead(large_workflow):
+    normal,_=measured('run',large_workflow)
+    machine,output=measured('run',large_workflow,'--json')
+    assert json.loads(output)['success']
+    assert abs(machine-normal)<0.5,f'JSON {machine:.3f}s vs normal {normal:.3f}s'
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_list_500_registered_nodes(isolated,monkeypatch):
+    from src.core import node_registry
+    from src.core.node_registry import get_registry,NodeDefinition,NodeSource
+    monkeypatch.setattr(node_registry,'_registry_instance',None)
+    for i in range(500):
+        get_registry().register_external_node(NodeDefinition(f'perf_{i}',f'Node_{i}',
+            'Performance fixture',NodeSource.OFFICIAL,'performance','',{},version='1.0'))
+    elapsed,output=measured('node','list')
+    assert 'Node_0' in output and 'Node_499' in output
+    assert elapsed<1.0,f'500-node rendering took {elapsed:.2f}s (limit 1.0s)'
+
+
+def test_100_configuration_commits(isolated):
+    start=time.perf_counter()
+    for i in range(100):measured('config','set',f'key_{i}',i)
+    elapsed=time.perf_counter()-start
+    config=ConfigManager().config
+    assert all(config[f'key_{i}']==i for i in range(100))
+    assert elapsed<3.0,f'100 durable config updates took {elapsed:.2f}s (limit 3.0s)'
+
+
+def test_list_100_persisted_tasks(isolated):
+    tasks=[{'id':f'task-{i:04d}','workflow_name':f'wf_{i}','cron_expression':'0 * * * *',
+            'enabled':i%2==0,'last_run':None,'next_run':'2026-10-30 00:00:00'} for i in range(100)]
+    ConfigManager().set_scheduled_tasks(tasks)
+    elapsed,output=measured('schedule','list')
+    assert 'wf_0' in output and 'wf_99' in output
+    assert elapsed<1.0,f'100-task rendering took {elapsed:.2f}s (limit 1.0s)'

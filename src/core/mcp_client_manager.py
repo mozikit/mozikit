@@ -25,7 +25,8 @@ class MCPClientHandle:
     server_id: str
     transport: str
     client: Any
-    stack: AsyncExitStack
+    owner: asyncio.Task
+    close_requested: asyncio.Event
     started_at: datetime
     last_used_at: datetime
     healthy: bool
@@ -54,10 +55,12 @@ class MCPClientManager:
             resolved = self._resolve(server_id)
             transport = resolved["transport"]
             name = resolved.get("name")
-            async with AsyncExitStack() as stack:
-                client = await asyncio.wait_for(self._enter_client(stack, resolved), timeout)
-                tools = await asyncio.wait_for(client.list_tools(), timeout)
+            handle = await self._connect_handle(server_id, resolved, timeout)
+            try:
+                tools = await asyncio.wait_for(handle.client.list_tools(), timeout)
                 normalized = self._normalize_tools(tools)
+            finally:
+                await self._close_handle(handle)
             return MCPConnectionTestResult(True, name, transport, len(normalized), normalized,
                                            latency_ms=round((time.perf_counter() - started) * 1000))
         except asyncio.TimeoutError as exc:
@@ -143,21 +146,46 @@ class MCPClientManager:
                     self._clients.pop(server_id, None)
             if current:
                 await self._close_handle(current)
-            try:
-                stack = AsyncExitStack()
-                client = await asyncio.wait_for(self._enter_client(stack, resolved), self.connect_timeout)
-            except asyncio.TimeoutError as exc:
-                await stack.aclose()
-                raise MozikitError(ErrorCode.MCP_CONNECTION_TIMEOUT,
-                                   f"MCP connection timed out: {server_id}", cause=exc) from exc
-            except Exception as exc:
-                await stack.aclose()
-                raise self._translate_connection_error(exc, server_id) from exc
-            handle = MCPClientHandle(server_id, resolved["transport"], client, stack,
-                                     _now(), _now(), True, fingerprint, asyncio.Lock())
+            handle = await self._connect_handle(server_id, resolved, self.connect_timeout)
             async with self._clients_lock:
                 self._clients[server_id] = handle
             return handle
+
+    async def _connect_handle(self, server_id, resolved, timeout):
+        # SDK transports own AnyIO cancel scopes. Enter and exit them in the same
+        # long-lived task; wait_for(__aenter__) followed by aclose() in a caller
+        # task violates that ownership on Python 3.10/3.11 and concurrent callers.
+        ready = asyncio.get_running_loop().create_future()
+        close_requested = asyncio.Event()
+
+        async def own_transport():
+            try:
+                async with AsyncExitStack() as stack:
+                    client = await self._enter_client(stack, resolved)
+                    ready.set_result(client)
+                    await close_requested.wait()
+            except BaseException as exc:
+                if not ready.done():
+                    ready.set_exception(exc)
+                else:
+                    raise
+
+        owner = asyncio.create_task(own_transport(), name=f'mcp-transport:{server_id}')
+        try:
+            client = await asyncio.wait_for(asyncio.shield(ready), timeout)
+        except BaseException as exc:
+            owner.cancel()
+            await asyncio.gather(owner, return_exceptions=True)
+            if ready.done() and not ready.cancelled():
+                ready.exception()  # Retrieve a connection error set during cleanup.
+            if isinstance(exc, asyncio.TimeoutError):
+                raise MozikitError(ErrorCode.MCP_CONNECTION_TIMEOUT,
+                                   f'MCP connection timed out: {server_id}', cause=exc) from exc
+            if isinstance(exc, Exception):
+                raise self._translate_connection_error(exc, server_id) from exc
+            raise
+        return MCPClientHandle(server_id, resolved['transport'], client, owner, close_requested,
+                               _now(), _now(), True, _fingerprint(resolved), asyncio.Lock())
 
     async def _enter_client(self, stack: AsyncExitStack, resolved: dict[str, Any]) -> Any:
         if self._client_factory:
@@ -216,7 +244,8 @@ class MCPClientManager:
         """Close a detached handle after its in-flight operation has finished."""
         handle.healthy = False
         async with handle.lock:
-            await handle.stack.aclose()
+            handle.close_requested.set()
+            await handle.owner
 
     @staticmethod
     def _translate_connection_error(exc: Exception, server_id: str) -> MozikitError:

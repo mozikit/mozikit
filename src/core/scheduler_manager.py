@@ -146,7 +146,9 @@ class SchedulerManager(QObject):
         return task_id
 
     def update_task(self, task_id: str, **updates) -> bool:
-        """更新任务"""
+        """更新任务（先验证目标和 Cron，再一次提交）。"""
+        from .schedule_editing import validate_schedule_updates
+        updates = validate_schedule_updates(updates)
         if "cron_expression" in updates:
             normalized = self.validate_cron_expression(updates["cron_expression"])
             next_run = ScheduleEntry.format_next_run(normalized)

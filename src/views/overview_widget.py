@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config_manager import ConfigManager
+from src.core.workflow_lifecycle import WorkflowLifecycle
 from src.core.log_manager import get_logger
 from src.core.scheduler_manager import SchedulerManager
 from src.core.theme_manager import ThemeManager
@@ -871,6 +872,8 @@ class OverviewWidget(QWidget):
                 workflow_widget.executor.workflow_id = workflow_data.get(
                     "workflow_id"
                 ) or str(Path(workflow_path).resolve())
+                from copy import deepcopy
+                workflow_widget.executor._raw_document = deepcopy(workflow_data)
                 workflow_widget.executor.active = workflow_data.get("active", False) is True
                 triggers = workflow_data.get("triggers", [])
                 workflow_widget.executor.triggers = (
@@ -902,6 +905,7 @@ class OverviewWidget(QWidget):
                         node_def.output_schema if node_def else {},
                     )
                     node_item.config = node_data.get("config", {})
+                    node_item.version = node_data.get('version')
 
                     pos = node_data.get("position", {"x": 0, "y": 0})
                     node_item.setPos(pos.get("x", 0), pos.get("y", 0))
@@ -960,7 +964,7 @@ class OverviewWidget(QWidget):
                     from PySide6.QtCore import QTimer
 
                     QTimer.singleShot(
-                        100,
+                        100, workflow_widget.canvas,
                         lambda: workflow_widget.canvas.set_canvas_state(canvas_state),
                     )
                 else:
@@ -968,7 +972,7 @@ class OverviewWidget(QWidget):
                     from PySide6.QtCore import QTimer
 
                     QTimer.singleShot(
-                        100,
+                        100, workflow_widget.canvas,
                         lambda: workflow_widget.canvas.apply_default_zoom(),
                     )
 
@@ -998,9 +1002,10 @@ class OverviewWidget(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                workflow_dir = Path("workflows") / workflow_name
+                from src.core import resolve_workspace
+                workflow_dir = resolve_workspace() / workflow_name
                 if workflow_dir.exists():
-                    shutil.rmtree(workflow_dir)
+                    WorkflowLifecycle().delete(str(workflow_dir.resolve()))
                     logger.info("工作流已删除: %s", workflow_name)
                 else:
                     QMessageBox.warning(

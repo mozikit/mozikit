@@ -10,6 +10,8 @@ import base64
 import json
 import re
 import shutil
+import tempfile
+from filelock import FileLock
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -252,27 +254,22 @@ class GitHubNodeProvider:
             if version is None:
                 version = info.get("version", "1.0.0")
 
-            # 使用版本管理器存储
-            version_dir = self._version_mgr.create_version_dir(node_type, version)
+            # Validate remote identifiers before constructing local storage paths.
+            from ..workflow_lifecycle import validate_workflow_name
+            if validate_workflow_name(node_type) != node_type or validate_workflow_name(version) != version:
+                raise ValueError("节点类型或版本不是有效的目录名称")
+            version_dir = self._version_mgr.get_version_dir(node_type, version)
 
             info["repo_url"] = repo_url
             info["_path"] = node_path
             info["version"] = version
 
-            with open(version_dir / "node.json", "w", encoding="utf-8") as f:
-                json.dump(info, f, ensure_ascii=False, indent=2)
-
             entry_filename = info.get("entry_file", "node.py")
             source_code = self._download_file(
                 owner, repo, f"{path_prefix}{entry_filename}"
             )
-            if not source_code:
-                source_code = (
-                    f"# 节点来源: {repo_url}\n"
-                    "# 源代码下载失败，请手动编辑\n\n"
-                    "def execute(self, input_data):\n"
-                    "    return input_data\n"
-                )
+            if source_code is None:
+                raise ValueError(f"无法下载节点源代码: {entry_filename}")
 
             # ── 安全审查：扫描下载的源代码 ──
             safety_result = review_code_safety(source_code)
@@ -292,53 +289,57 @@ class GitHubNodeProvider:
             file_hashes[entry_filename] = compute_content_hash(source_code)
             metadata["file_hashes"] = file_hashes
 
-            # 将更新后的 metadata 写回 node.json
-            info["metadata"] = metadata
-            with open(version_dir / "node.json", "w", encoding="utf-8") as f:
-                json.dump(info, f, ensure_ascii=False, indent=2)
+            # Download and validate every required file before replacing an installed version.
+            # Staging also prevents a failed update from replacing good code with a stub.
+            version_dir.parent.mkdir(parents=True, exist_ok=True)
+            with FileLock(str(version_dir.parent.parent / '.install.lock'), timeout=15):
+                with tempfile.TemporaryDirectory(prefix='.download-', dir=version_dir.parent) as temporary:
+                    staging = Path(temporary) / 'new'
+                    staging.mkdir()
+                    entry_path = self._local_file(staging, entry_filename)
+                    entry_path.parent.mkdir(parents=True, exist_ok=True)
+                    entry_path.write_text(source_code, encoding='utf-8')
+                    self._download_extra_files(owner, repo, info, staging, path_prefix)
+                    registrations = info.get("registrations", {})
+                    for reg_entry in registrations.values():
+                        module_name = reg_entry.get("module", "")
+                        if module_name:
+                            module_path = self._local_file(staging, module_name)
+                            file_hashes[module_name] = compute_content_hash(module_path.read_text(encoding='utf-8'))
+                    info["metadata"] = metadata
+                    (staging / 'node.json').write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding='utf-8')
 
-            entry_path = version_dir / Path(entry_filename).name
-            with open(entry_path, "w", encoding="utf-8") as f:
-                f.write(source_code)
-
-            self._download_extra_files(owner, repo, info, version_dir, path_prefix)
-
-            # 记录 registrations 模块文件的哈希
-            registrations = info.get("registrations", {})
-            for reg_entry in registrations.values():
-                module_name = reg_entry.get("module", "")
-                if module_name:
-                    module_path = version_dir / module_name
-                    if module_path.exists():
-                        with open(module_path, "rb") as mf:
-                            file_hashes[module_name] = compute_content_hash(
-                                mf.read().decode("utf-8", errors="replace")
-                            )
-            if registrations:
-                info["metadata"] = metadata
-                with open(version_dir / "node.json", "w", encoding="utf-8") as f:
-                    json.dump(info, f, ensure_ascii=False, indent=2)
-
-            # 更新清单
-            manifest = self._version_mgr.load_manifest(node_type)
-            if not manifest:
-                manifest = LocalManifest(
-                    node_type=node_type,
-                    node_name=node_name,
-                )
-            from datetime import datetime
-
-            manifest.add_or_update_version(
-                VersionInfo(
-                    version=version,
-                    installed_at=datetime.now().isoformat(),
-                    source="github",
-                )
-            )
-            if not manifest.current_version:
-                manifest.current_version = version
-                self._version_mgr.set_current_version(node_type, version)
-            self._version_mgr.save_manifest(node_type, manifest)
+                    manifest = self._version_mgr.load_manifest(node_type) or LocalManifest(node_type=node_type, node_name=node_name)
+                    from datetime import datetime
+                    manifest.add_or_update_version(VersionInfo(version=version, installed_at=datetime.now().isoformat(), source="github"))
+                    manifest.current_version = version
+                    backup = Path(temporary) / 'previous'
+                    existed = version_dir.exists()
+                    old_version = self._version_mgr.resolve_current_version(node_type)
+                    manifest_path = self._version_mgr.get_manifest_path(node_type)
+                    old_manifest = manifest_path.read_text(encoding='utf-8') if manifest_path.exists() else None
+                    try:
+                        if existed:
+                            version_dir.rename(backup)
+                        staging.rename(version_dir)
+                        self._version_mgr.set_current_version(node_type, version)
+                        self._version_mgr.save_manifest(node_type, manifest)
+                    except BaseException:
+                        if version_dir.exists():
+                            shutil.rmtree(version_dir)
+                        if backup.exists():
+                            backup.rename(version_dir)
+                        if old_version:
+                            self._version_mgr.set_current_version(node_type, old_version)
+                        else:
+                            current = self._version_mgr.get_current_link_path(node_type)
+                            current.unlink(missing_ok=True)
+                        if old_manifest is None:
+                            manifest_path.unlink(missing_ok=True)
+                        else:
+                            from .._file_utils import atomic_write
+                            atomic_write(manifest_path, old_manifest)
+                        raise
 
             # 注册到注册表
             node_def = NodeDefinition(
@@ -381,6 +382,14 @@ class GitHubNodeProvider:
         except Exception:
             return None
 
+    @staticmethod
+    def _local_file(directory: Path, filename: str) -> Path:
+        from pathlib import PurePosixPath
+        relative = PurePosixPath(filename)
+        if not filename or relative.is_absolute() or '..' in relative.parts or '\\' in filename or ':' in filename:
+            raise ValueError("节点文件路径越出目录")
+        return directory.joinpath(*relative.parts)
+
     def _download_extra_files(
         self,
         owner: str,
@@ -402,11 +411,11 @@ class GitHubNodeProvider:
                 extra_files.append(module_name)
         for filename in extra_files:
             content = self._download_file(owner, repo, f"{path_prefix}{filename}")
-            if content:
-                with open(
-                    version_dir / Path(filename).name, "w", encoding="utf-8"
-                ) as f:
-                    f.write(content)
+            if content is None:
+                raise ValueError(f"无法下载节点依赖文件: {filename}")
+            target = self._local_file(version_dir, filename)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
 
     def delete_node(self, node_type: str) -> bool:
         """删除节点（所有版本）"""

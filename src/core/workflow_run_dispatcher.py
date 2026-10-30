@@ -12,6 +12,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 import uuid
+from functools import wraps
+
+
+def _guard_run(function):
+    @wraps(function)
+    def invoke(self, executor, **kwargs):
+        if not isinstance(getattr(executor, 'workflow_id', None), str):
+            return function(self, executor, **kwargs)
+        from .workflow_lifecycle import run_lock
+        from filelock import Timeout
+        try:
+            with run_lock(executor.workflow_id):
+                return function(self, executor, **kwargs)
+        except Timeout as exc:
+            raise ValueError('工作流正在执行或迁移，请稍后再试') from exc
+    return invoke
 
 from .config_manager import ConfigManager
 from .exceptions import ErrorCode, MozikitError
@@ -121,6 +137,7 @@ class WorkflowRunDispatcher:
             entry_node_id=entry_node_id,
         )
 
+    @_guard_run
     def dispatch_executor(
         self,
         executor: WorkflowExecutor,
@@ -134,6 +151,7 @@ class WorkflowRunDispatcher:
         entry_node_id: Optional[str] = None,
         target_node_id: Optional[str] = None,
         handle_interrupt: bool = False,
+        reuse_run_id: Optional[str] = None,
     ) -> WorkflowDispatchResult:
         callbacks = callbacks or WorkflowRunCallbacks()
         try:
@@ -150,6 +168,13 @@ class WorkflowRunDispatcher:
                     target_node_id, executor.nodes,
                     [(edge.from_node, edge.to_node) for edge in executor.edges],
                 )
+            if reuse_run_id:
+                from .execution_snapshots import ExecutionSnapshots
+                ExecutionSnapshots().restore(executor, reuse_run_id, target_node_id, initial_data)
+                skip_successful_nodes = True
+            elif target_node_id:
+                # A target is an execution request, never a request to replay itself.
+                executor.node_results.pop(target_node_id, None)
             if prepare_environment:
                 self._notify(callbacks.on_environment_preparing)
                 if included_node_ids is None:

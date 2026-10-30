@@ -147,6 +147,8 @@ class HeadlessScheduler:
 
     def update_task(self, task_id: str, **updates) -> bool:
         """更新定时任务"""
+        from .schedule_editing import validate_schedule_updates
+        updates = validate_schedule_updates(updates)
         if "cron_expression" in updates:
             normalized = CronUtils.validate_cron(updates["cron_expression"])
             next_run = CronUtils.format_next_run(normalized)
@@ -162,14 +164,14 @@ class HeadlessScheduler:
         """获取指定任务"""
         return self.config_manager.get_scheduled_task(task_id)
 
-    def run_now(self, task_id: str):
+    def run_now(self, task_id: str, *, wait: bool = False):
         """立即执行指定任务"""
         task = self.get_task(task_id)
         if not task:
             logger.error("任务不存在: %s", task_id)
             return
         logger.info("立即执行任务: %s (%s)", task_id, task.get("workflow_name"))
-        self._execute_task(task)
+        return self._execute_task(task, wait=True) if wait else self._execute_task(task)
 
     def is_task_running(self, task_id: str) -> bool:
         return self._running_tasks.get(task_id, False)
@@ -212,13 +214,12 @@ class HeadlessScheduler:
                 next_time = CronUtils.format_next_run(
                     task.get("cron_expression", "0 * * * *")
                 )
-                task["next_run"] = next_time.strftime("%Y-%m-%d %H:%M:%S")
                 self.config_manager.update_scheduled_task(
                     task["id"],
-                    {"next_run": task["next_run"], "last_run": current_time},
+                    {"next_run": next_time.strftime("%Y-%m-%d %H:%M:%S"), "last_run": current_time},
                 )
 
-    def _execute_task(self, task: dict):
+    def _execute_task(self, task: dict, *, wait: bool = False):
         """后台执行工作流"""
         task_id = task.get("id")
         workflow_path = task.get("workflow_path", "")
@@ -262,6 +263,7 @@ class HeadlessScheduler:
                         except Exception:
                             pass
 
+                return report
             except Exception as e:
                 logger.exception("定时任务异常: %s", task_id)
                 if self._on_task_failed:
@@ -269,9 +271,13 @@ class HeadlessScheduler:
                         self._on_task_failed(task, str(e))
                     except Exception:
                         pass
+                return {'success': False, 'error': str(e)}
             finally:
                 with self._lock:
                     self._running_tasks[task_id] = False
 
+        if wait:
+            return _run()
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()
+        return thread

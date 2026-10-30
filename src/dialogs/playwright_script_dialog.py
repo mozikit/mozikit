@@ -345,92 +345,39 @@ class PlaywrightScriptDialog(QDialog):
             QMessageBox.warning(self, "脚本校验失败", str(exc))
 
     def _check_and_install_playwright(self) -> bool:
-        """检查 playwright CLI 是否可用，不可用时尝试自动安装"""
-        import subprocess, sys, shutil
-
-        # 检查 playwright 命令是否存在
-        pw_path = shutil.which("playwright")
-        if pw_path:
-            # 再检查 playwright codegen 子命令是否可用
-            try:
-                r = subprocess.run(
-                    [pw_path, "--version"],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    timeout=10,
-                )
-                if r.returncode == 0:
-                    return True
-            except Exception:
-                pass
-
-        # playwright 不可用，询问是否安装
-        reply = QMessageBox.question(
-            self, "安装 Playwright",
-            "录制功能需要 Playwright，是否现在安装？\n\n"
-            "将执行: uv pip install playwright",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return False
-
-        # 执行安装（使用 uv，项目包管理统一用 uv）
-        try:
-            from PySide6.QtCore import QEventLoop
-
-            uv_path = shutil.which("uv") or "uv"
-            install_cmd = [uv_path, "pip", "install", "playwright"]
-
-            # 进度对话框（不确定进度 = 旋转条）
-            progress = QProgressDialog("正在使用 uv 安装 playwright...", "取消", 0, 0, self)
-            progress.setWindowTitle("安装 Playwright")
-            progress.setWindowModality(Qt.WindowModality.WindowModal)
-            progress.setMinimumDuration(0)
-            progress.show()
-
-            # 启动安装进程
-            install_proc = QProcess(self)
-            install_proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-
-            # 用事件循环等待，不阻塞 UI
-            loop = QEventLoop(self)
-            install_proc.finished.connect(loop.quit)
-            progress.canceled.connect(loop.quit)
-
-            install_proc.start(install_cmd[0], install_cmd[1:])
-            if not install_proc.waitForStarted(5000):
-                progress.close()
-                QMessageBox.warning(self, "安装失败", "无法启动 uv 安装进程。")
-                self.validation_label.setText("")
-                return False
-
-            # 事件循环等待（UI 保持响应）
-            loop.exec()
-
-            if progress.wasCanceled():
-                install_proc.kill()
-                progress.close()
-                self.validation_label.setText("")
-                return False
-
-            progress.close()
-
-            output = install_proc.readAll().data().decode("utf-8", errors="replace")
-            if install_proc.exitCode() != 0:
-                QMessageBox.warning(
-                    self, "安装失败",
-                    f"uv pip install playwright 失败:\n{output[:500]}"
-                )
-                self.validation_label.setText("")
-                return False
-
-            QMessageBox.information(self, "安装成功", "Playwright 已安装，可以开始录制。")
-            self.validation_label.setText("")
+        from threading import Event
+        from PySide6.QtCore import QThread
+        from src.core.playwright_runtime import PlaywrightRuntime
+        runtime = PlaywrightRuntime()
+        self._playwright_runtime = runtime
+        if runtime.available():
             return True
-
-        except Exception as e:
-            QMessageBox.warning(self, "安装出错", str(e))
-            self.validation_label.setText("")
+        if QMessageBox.question(self, "安装 Playwright", "录制需要独立工具环境，是否通过 UV 安装？",
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return False
+        cancel = Event()
+        class Installer(QThread):
+            error = None
+            def run(worker):
+                try:
+                    runtime.install(cancel)
+                except Exception as exc:
+                    worker.error = str(exc)
+        worker = Installer(self)
+        progress = QProgressDialog("安装 Playwright 工具环境...", "取消", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.canceled.connect(cancel.set)
+        loop = QEventLoop(self)
+        worker.finished.connect(loop.quit)
+        progress.show()
+        worker.start()
+        loop.exec()
+        worker.wait()
+        progress.close()
+        if worker.error:
+            QMessageBox.warning(self, "安装未完成", worker.error)
+            return False
+        return True
 
     def _start_recording(self):
         """启动 Playwright Codegen 录制"""
@@ -468,7 +415,8 @@ class PlaywrightScriptDialog(QDialog):
         self._record_process.finished.connect(
             lambda exitCode, exitStatus: self._on_recording_finished(exitCode)
         )
-        self._record_process.start("playwright", args)
+        command = self._playwright_runtime.recording_command(self._record_temp_path, url)
+        self._record_process.start(command[0], command[1:])
 
         # 检查启动是否成功
         if not self._record_process.waitForStarted(3000):

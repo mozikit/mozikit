@@ -13,6 +13,7 @@ Windows Desktop 安装后直接使用 PATH 中的 `mozikit`；源码目录则使
 | 创建、移除连接 | `workflow connect/disconnect` |
 | 执行整个工作流 | `run workflow.json` |
 | 执行目标节点和所有必需上游 | `run workflow.json --node node_id` |
+| 显式复用某次成功运行的上游 | `run workflow.json --node node_id --reuse-run run_id` |
 | 停止本次执行 | 在运行命令的终端按 Ctrl+C；通过执行器停止当前运行 |
 | 完整执行报告 | `run workflow.json --json --output report.json` |
 | 启停监听、查看状态 | `workflow activate/deactivate/status` |
@@ -36,7 +37,7 @@ Windows Desktop 安装后直接使用 PATH 中的 `mozikit`；源码目录则使
 | Playwright 脚本读取、保存 | `workflow script show 工作流 节点ID`、`workflow script set 工作流 节点ID script.py` |
 | Playwright 校验、重扫参数、清空 | `workflow script validate/rescan/clear 工作流 节点ID` |
 | Playwright 录制并回填 | `workflow script record 工作流 节点ID [--url 起始地址]` |
-| 安装 Playwright 录制工具 | `workflow script install-runtime`（通过 UV 安装到当前 Python） |
+| 安装 Playwright 录制工具 | `workflow script install-runtime`（通过 UV 安装到独立的可写工具环境） |
 
 ## 配置值与连线规则
 
@@ -72,3 +73,18 @@ Ctrl+C 在执行阶段调用与 GUI 停止按钮相同的执行器停止接口�
 
 外部 AI、GitHub、UV 安装和浏览器录制依赖网络、凭据或本地安装条件。
 自动化测试使用隔离数据及外部服务替身，不代表已完成这些服务的现场验收。
+
+## 上游结果复用
+
+默认 `--node` 执行所有必需上游。`--reuse-run` 必须与 `--node` 联用，目标节点始终重新执行。
+只有完整成功运行的无损 JSON 输出可用于复用；包含已识别凭据配置或引用的运行不会保存复用快照。
+节点代码、绑定版本、配置、输入、连线、环境或输出附件变化时会拒绝该快照，并明确失败，不会自动重跑上游。
+报告中的 `reused` 和 `source_run_id` 可识别复用来源。GUI 单节点执行也使用同一校验服务。
+快照只保存在本机应用数据目录，POSIX 权限限制为当前用户；含敏感输出的任务需自行管理本机数据。
+
+重命名会迁移整个工作流目录、保留 workflow_id/坐标/资源并更新引用；运行中或监听中的工作流需先停止。
+复制和导入创建新身份并默认停用；删除只允许工作区内规范的工作流目录。
+`schedule update --workflow workflow.json` 修改实际任务目标，`schedule run` 等待运行完成并返回失败状态。
+`node generate --example-input ... --example-output ...` 可传入示例，生成版本同时保存在节点定义中。
+
+[实施与验收计划](../development/CLI_GUI_PARITY_PLAN.md)及[验收操作说明](../../test/acceptance/README.md)记录覆盖范围和外部验收边界。

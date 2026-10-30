@@ -166,3 +166,24 @@ async def test_close_waits_for_an_inflight_call_before_closing_transport():
     await call
     await closing
     assert FakeClient.instances[-1].closed
+
+
+@pytest.mark.asyncio
+async def test_transport_scopes_are_entered_and_closed_by_the_same_owner_task():
+    import anyio
+    owners=[]
+    @asynccontextmanager
+    async def scoped_factory(resolved):
+        entering=asyncio.current_task()
+        async with anyio.create_task_group():
+            try:
+                yield FakeClient(resolved)
+            finally:
+                owners.append((entering,asyncio.current_task()))
+    manager=MCPClientManager(FakeRegistry(),client_factory=scoped_factory)
+    await asyncio.gather(manager.list_tools('demo'),manager.call_tool('demo','echo',{'value':3}))
+    # Closing can originate in another task without moving the SDK's scopes.
+    await asyncio.create_task(manager.close_all())
+    probe=await manager.test_connection('demo')
+    assert probe.success
+    assert len(owners)==2 and all(entered is exited for entered,exited in owners)

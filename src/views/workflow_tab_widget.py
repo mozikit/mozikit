@@ -287,9 +287,7 @@ class WorkflowTabWidget(QWidget):
         if not self.workflow_path or self._is_modified:
             self._save_workflow_sync()
         if not self.workflow_path:
-            self.workflow_path = str(
-                Path("workflows") / self.workflow_name / "workflow.json"
-            )
+            self.workflow_path = self._workflow_file()
         workflow_path = Path(self.workflow_path).expanduser().resolve()
         if not workflow_path.is_file():
             QMessageBox.warning(self, "无法切换监听", "请先保存工作流。")
@@ -497,10 +495,10 @@ class WorkflowTabWidget(QWidget):
             if hasattr(node_item.node_type, "value")
             else str(node_item.node_type)
         )
-        node = CustomNode(node_id, node_type_str, node_item.config)
+        node = CustomNode(node_id, node_type_str, node_item.config, version=getattr(node_item, 'version', None))
         node_def = get_registry().get_node(node_type_str)
         if node_def:
-            node.source_code = node_def.source_code
+            node.source_code = get_registry().get_source_code(node_type_str, version=node.version)
         return node
 
     def _populate_executor(self, included_node_ids: Optional[Set[str]] = None):
@@ -657,7 +655,7 @@ class WorkflowTabWidget(QWidget):
         self._reset_node_run_states()
         target_node.set_executing(True)
 
-        self._populate_executor(required_node_ids)
+        self._populate_executor()
 
         logger.info("\n执行单节点: %s", node_id)
         if not self.uv_manager.check_uv_installed():
@@ -677,11 +675,13 @@ class WorkflowTabWidget(QWidget):
             self.executor,
             trigger_type="manual",
             prepare_env=True,
-            skip_successful_nodes=True,
-            workflow_path=f"workflows/{self.workflow_name}/workflow.json",
+            skip_successful_nodes=False,
+            workflow_path=self._workflow_file(),
             config_manager=getattr(self.main_window, "config_manager", None),
             parent=self,
         )
+        self._run_worker.target_node_id = node_id
+        self._run_worker.reuse_run_id = getattr(self.executor, "_last_run_id", None)
         self._run_worker.node_started.connect(self._on_node_started)
         self._run_worker.node_completed.connect(self._on_node_completed)
         self._run_worker.node_progress.connect(self._on_node_progress)
@@ -764,7 +764,7 @@ class WorkflowTabWidget(QWidget):
             self.executor,
             trigger_type="manual",
             prepare_env=True,
-            workflow_path=f"workflows/{self.workflow_name}/workflow.json",
+            workflow_path=self._workflow_file(),
             config_manager=getattr(self.main_window, "config_manager", None),
             parent=self,
         )
@@ -907,6 +907,11 @@ class WorkflowTabWidget(QWidget):
                     5000,
                 )
 
+    def _workflow_file(self):
+        """Use the same workspace as the scanner, CLI and lifecycle service."""
+        from src.core import resolve_workspace
+        return str((resolve_workspace() / self.workflow_name / 'workflow.json').resolve())
+
     def _save_workflow(self):
         """保存工作流（异步，不阻塞UI）"""
         if self._save_worker and self._save_worker.isRunning():
@@ -927,7 +932,7 @@ class WorkflowTabWidget(QWidget):
 
             import os
 
-            save_path = f"workflows/{self.workflow_name}/workflow.json"
+            save_path = self._workflow_file()
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
             self._sync_active_property_panel()
@@ -1000,7 +1005,7 @@ class WorkflowTabWidget(QWidget):
 
             import os
 
-            save_path = f"workflows/{self.workflow_name}/workflow.json"
+            save_path = self._workflow_file()
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
             self._sync_active_property_panel()
@@ -1044,7 +1049,7 @@ class WorkflowTabWidget(QWidget):
     def _on_zoom_changed(self):
         """画布缩放比例变化时自动保存工作流"""
         # 只有已保存过的工作流才自动保存（workflow_name 不是默认的临时名称）
-        save_path = f"workflows/{self.workflow_name}/workflow.json"
+        save_path = self._workflow_file()
         if os.path.exists(save_path):
             try:
                 self._save_workflow()
@@ -1054,42 +1059,16 @@ class WorkflowTabWidget(QWidget):
     def get_workflow_name(self):
         return self.workflow_name
 
-    def _validate_workflow_name(
-        self, new_name: str, exclude_current: bool = True
-    ) -> tuple[bool, str]:
-        """验证工作流名称是否有效
-
-        Args:
-            new_name: 新的工作流名称
-            exclude_current: 是否排除当前工作流名称（用于重命名时）
-
-        Returns:
-            tuple: (is_valid, error_message)
-        """
-        if not new_name or not new_name.strip():
-            return False, "工作流名称不能为空"
-
-        new_name = new_name.strip()
-
-        # 检查名称中是否包含非法字符
-        illegal_chars = ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]
-        for char in illegal_chars:
-            if char in new_name:
-                return False, f"工作流名称不能包含字符: {char}"
-
-        # 检查名称是否已存在
-        workflows_dir = "workflows"
-        if os.path.exists(workflows_dir):
-            for item in os.listdir(workflows_dir):
-                item_path = os.path.join(workflows_dir, item)
-                if os.path.isdir(item_path):
-                    # 如果是重命名操作，排除当前工作流名称
-                    if exclude_current and item == self.workflow_name:
-                        continue
-                    if item == new_name:
-                        return False, f"工作流 '{new_name}' 已存在"
-
-        return True, ""
+    def _validate_workflow_name(self, new_name: str, exclude_current: bool = True) -> tuple[bool, str]:
+        from src.core.workflow_lifecycle import validate_workflow_name
+        from src.core import resolve_workspace
+        try:
+            name = validate_workflow_name(new_name)
+            if not (exclude_current and name == self.workflow_name) and (resolve_workspace() / name).exists():
+                raise ValueError(f"工作流 '{name}' 已存在")
+            return True, ""
+        except ValueError as exc:
+            return False, str(exc)
 
     def rename_workflow(self):
         """进入重命名模式"""
@@ -1163,7 +1142,7 @@ class WorkflowTabWidget(QWidget):
         if self._is_modified:
             self._save_workflow()
 
-        workflow_path = f"workflows/{self.workflow_name}/workflow.json"
+        workflow_path = self._workflow_file()
         if not os.path.exists(workflow_path):
             # 工作流尚未保存，先保存
             self._save_workflow()
@@ -1178,35 +1157,20 @@ class WorkflowTabWidget(QWidget):
         dialog.exec()
 
     def _rename_workflow_files(self, new_name: str) -> bool:
-        """重命名工作流文件和目录
-
-        Args:
-            new_name: 新的工作流名称
-
-        Returns:
-            bool: 重命名是否成功
-        """
+        from src.core.workflow_lifecycle import WorkflowLifecycle
+        from src.core import resolve_workspace
         try:
-            old_dir = f"workflows/{self.workflow_name}"
-            new_dir = f"workflows/{new_name}"
-
-            # 如果旧目录存在，重命名它
-            if os.path.exists(old_dir):
-                # 确保目标目录不存在
-                if os.path.exists(new_dir):
-                    return False
-
-                shutil.move(old_dir, new_dir)
-
-                # 更新工作流文件中的名称
-                workflow_file = os.path.join(new_dir, "workflow.json")
-                if os.path.exists(workflow_file):
-                    self._update_workflow_name_in_file(workflow_file, new_name)
-
+            if getattr(self, '_run_worker', None) and self._run_worker.isRunning():
+                raise ValueError("请先停止工作流执行")
+            old = resolve_workspace() / self.workflow_name / 'workflow.json'
+            if old.exists():
+                target = WorkflowLifecycle().rename(str(old.resolve()), new_name)
+                from src.core.workflow_lifecycle import read_document
+                self.workflow_path = str(target)
+                self.executor._raw_document = read_document(target)
             return True
-
-        except Exception as e:
-            logger.error("重命名工作流文件失败: %s", e)
+        except (ValueError, OSError) as exc:
+            logger.error("重命名失败: %s", exc)
             return False
 
     def _update_workflow_name_in_file(self, file_path: str, new_name: str):

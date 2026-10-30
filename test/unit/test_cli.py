@@ -485,7 +485,7 @@ class TestCLIScheduleCommand(unittest.TestCase):
 
         result = self.runner.invoke(app, ["schedule", "run", "task-1"])
         self.assertEqual(result.exit_code, 0)
-        mock_sched.run_now.assert_called_once_with("task-1")
+        mock_sched.run_now.assert_called_once_with("task-1", wait=True)
 
     @patch("src.cli.HeadlessScheduler")
     def test_schedule_run_missing_task(self, mock_sched_cls):

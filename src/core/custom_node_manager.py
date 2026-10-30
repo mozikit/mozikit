@@ -260,7 +260,8 @@ class CustomNodeManager:
         import re
 
         node_type = re.sub(r"[^\w]", "_", name.lower())
-        return f"custom_{node_type}_{datetime.now().strftime('%H%M%S')}"
+        import uuid
+        return f"custom_{node_type}_{uuid.uuid4().hex[:12]}"
 
     def _create_node_definition(
         self,
@@ -277,6 +278,9 @@ class CustomNodeManager:
     ):
         """一次性创建完整节点目录，避免生成半成品文件"""
         from .node_registry import NodeDefinition, NodeSource
+        from .workflow_lifecycle import validate_workflow_name
+        if validate_workflow_name(version) != version:
+            raise ValueError('节点版本必须是有效的目录名称')
 
         node_dir = self.custom_nodes_dir / node_type
         version_dir = node_dir / "versions" / version
@@ -418,7 +422,8 @@ class CustomNodeManager:
         if version is None:
             version = self._version_mgr.resolve_current_version(node_type)
 
-        version_dir = self._version_mgr.get_version_dir(node_type, version)
+        version_dir = (self._version_mgr.get_version_dir(node_type, version)
+                       if version else self._version_mgr.get_node_dir(node_type))
         if not version_dir.exists():
             return ""
 
@@ -448,7 +453,8 @@ class CustomNodeManager:
         if version is None:
             version = self._version_mgr.resolve_current_version(node_type)
 
-        version_dir = self._version_mgr.get_version_dir(node_type, version)
+        version_dir = (self._version_mgr.get_version_dir(node_type, version)
+                       if version else self._version_mgr.get_node_dir(node_type))
         if not version_dir.exists():
             return False
 
@@ -495,7 +501,8 @@ class CustomNodeManager:
         if version is None:
             version = self._version_mgr.resolve_current_version(node_type)
 
-        version_dir = self._version_mgr.get_version_dir(node_type, version)
+        version_dir = (self._version_mgr.get_version_dir(node_type, version)
+                       if version else self._version_mgr.get_node_dir(node_type))
         if not version_dir.exists():
             raise MozikitError(ErrorCode.NODE_NOT_FOUND, f"节点不存在: {node_type}")
 
@@ -606,7 +613,8 @@ class CustomNodeManager:
                 else:
                     if version is None:
                         version = self._version_mgr.resolve_current_version(node_type)
-                    version_dir = self._version_mgr.get_version_dir(node_type, version)
+                    version_dir = (self._version_mgr.get_version_dir(node_type, version)
+                                   if version else self._version_mgr.get_node_dir(node_type))
                     if version_dir.exists():
                         for file in version_dir.iterdir():
                             if file.is_file():
@@ -780,7 +788,8 @@ class CustomNodeManager:
         if version is None:
             version = self._version_mgr.resolve_current_version(node_type)
 
-        version_dir = self._version_mgr.get_version_dir(node_type, version)
+        version_dir = (self._version_mgr.get_version_dir(node_type, version)
+                       if version else self._version_mgr.get_node_dir(node_type))
         config_file = version_dir / "node.json"
         if not config_file.exists():
             return None, None

@@ -26,3 +26,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(
                 pytest.mark.skip(reason="需要 PySide6（当前环境未安装）")
             )
+
+def pytest_addoption(parser):
+    parser.addoption('--acceptance-report',action='store',default=None,
+                     help='Write selected-cohort business assertions and explicit blocked cases')

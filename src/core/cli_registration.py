@@ -15,6 +15,7 @@ from pathlib import Path
 
 CLI_EXE_NAME = "mozikit.exe" if os.name == "nt" else "mozikit"
 _ENVIRONMENT_KEY = r"Environment"
+_SYSTEM_ENVIRONMENT_KEY = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
 
 
 def get_cli_executable_path() -> Path | None:
@@ -58,7 +59,8 @@ def remove_path_entry(value: str | None, entry: str) -> str:
 
 def _read_registry_path(root, winreg) -> str:
     try:
-        with winreg.OpenKey(root, _ENVIRONMENT_KEY, 0, winreg.KEY_READ) as key:
+        key_path = _SYSTEM_ENVIRONMENT_KEY if root == winreg.HKEY_LOCAL_MACHINE else _ENVIRONMENT_KEY
+        with winreg.OpenKey(root, key_path, 0, winreg.KEY_READ) as key:
             value, _ = winreg.QueryValueEx(key, "Path")
             return str(value or "")
     except (FileNotFoundError, OSError):

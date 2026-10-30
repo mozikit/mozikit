@@ -637,10 +637,23 @@ class NodeRegistry:
 
     # === 源代码管理 ===
 
-    def get_source_code(self, node_type) -> str:
+    def get_source_code(self, node_type, version=None) -> str:
         """获取节点执行用源代码"""
         node = self.get_node(node_type)
         if node:
+            if version:
+                if node.source == NodeSource.CUSTOM:
+                    from .custom_node_manager import CustomNodeManager
+                    manager = CustomNodeManager(self._user_data_dir).version_manager
+                elif node.source == NodeSource.GITHUB:
+                    from .providers.github_provider import GitHubNodeProvider
+                    manager = GitHubNodeProvider(self._user_data_dir).version_manager
+                else:
+                    from .node_repo_manager import NodeRepoManager
+                    manager = NodeRepoManager(self._user_data_dir).version_manager
+                path = manager.get_node_py_path(node.node_type, version)
+                if path.is_file():
+                    return path.read_text(encoding='utf-8')
             return node.source_code
         return ""
 

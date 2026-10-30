@@ -124,153 +124,59 @@ class TestWorkflowExport(unittest.TestCase):
 # 2. workflow import
 # ===================================================================
 
-class TestWorkflowImport(unittest.TestCase):
-    """workflow import 命令"""
-
-    def setUp(self):
+class TestWorkflowImport:
+    def setup_method(self):
         self.runner = CliRunner()
 
-    @patch("src.cli.WorkflowExecutor.load_workflow")
-    @patch("src.cli.os.makedirs")
-    @patch("src.cli.resolve_workspace")
-    def test_import_success(self, mock_ws, mock_makedirs, mock_load):
-        """import 有效 JSON 应创建工作流"""
-        mock_executor = MagicMock()
-        mock_executor.nodes = {"n1": MagicMock()}
-        mock_executor.edges = []
-        mock_executor.workflow_name = "imported_wf"
-        mock_load.return_value = mock_executor
+    def fixture(self, tmp_path, monkeypatch, data=None):
+        workspace = tmp_path / 'workspace'
+        monkeypatch.setenv('MOZIKIT_WORKSPACE', str(workspace))
+        monkeypatch.setenv('MOZIKIT_APP_DATA_DIR', str(tmp_path / 'data'))
+        source = tmp_path / 'input.json'
+        document = {'workflow_name': 'imported_wf', 'nodes': [], 'edges': []} if data is None else data
+        source.write_text(json.dumps(document), encoding='utf-8')
+        return source, workspace
 
-        mock_ws.return_value = Path("/tmp/test_ws")
+    def test_import_success(self, tmp_path, monkeypatch):
+        source, workspace = self.fixture(tmp_path, monkeypatch)
+        result = self.runner.invoke(app, ['workflow','import',str(source)])
+        assert result.exit_code == 0, result.output
+        assert (workspace/'imported_wf'/'workflow.json').is_file()
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            json.dump({"workflow_name": "imported_wf", "nodes": [], "edges": []}, f)
-            src_path = f.name
+    def test_import_file_not_found(self, tmp_path, monkeypatch):
+        source, workspace = self.fixture(tmp_path, monkeypatch)
+        source.unlink()
+        result = self.runner.invoke(app, ['workflow','import',str(source)])
+        assert result.exit_code == 1 and '不存在' in result.output
 
-        try:
-            result = self.runner.invoke(app, [
-                "workflow", "import",
-                src_path,
-            ])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("已导入", result.output)
-            self.assertIn("imported_wf", result.output)
-        finally:
-            os.unlink(src_path)
+    def test_import_invalid_json(self, tmp_path, monkeypatch):
+        source, workspace = self.fixture(tmp_path, monkeypatch)
+        source.write_text('invalid {{{', encoding='utf-8')
+        result = self.runner.invoke(app, ['workflow','import',str(source)])
+        assert result.exit_code == 1 and 'JSON' in result.output
+        assert not (workspace/'imported_wf').exists()
 
-    def test_import_file_not_found(self):
-        """import 不存在的文件应报错"""
-        result = self.runner.invoke(app, [
-            "workflow", "import",
-            "/nonexistent/path/workflow.json",
-        ])
-        self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("不存在", result.output)
+    def test_import_without_name_and_json_has_no_name(self, tmp_path, monkeypatch):
+        source, workspace = self.fixture(tmp_path, monkeypatch, {'nodes':[], 'edges':[]})
+        result = self.runner.invoke(app, ['workflow','import',str(source)])
+        assert result.exit_code == 1 and '名称' in result.output
 
-    def test_import_invalid_json(self):
-        """import 无效 JSON 应报错"""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            f.write("这不是 JSON {{{{")
-            src_path = f.name
+    def test_import_with_name_override(self, tmp_path, monkeypatch):
+        source, workspace = self.fixture(tmp_path, monkeypatch)
+        result = self.runner.invoke(app, ['workflow','import',str(source),'--name','renamed_flow'])
+        assert result.exit_code == 0, result.output
+        document = json.loads((workspace/'renamed_flow'/'workflow.json').read_text())
+        assert document['workflow_name'] == 'renamed_flow' and document['active'] is False
 
-        try:
-            result = self.runner.invoke(app, [
-                "workflow", "import",
-                src_path,
-            ])
-            self.assertNotEqual(result.exit_code, 0)
-            self.assertIn("JSON", result.output)
-        finally:
-            os.unlink(src_path)
+    def test_import_shows_node_edge_count(self, tmp_path, monkeypatch):
+        data={'workflow_name':'count_test','nodes':[
+            {'node_id':'a','node_type':'debug','config':{}},
+            {'node_id':'b','node_type':'debug','config':{}}], 'edges':[['a','b']]}
+        source, workspace = self.fixture(tmp_path, monkeypatch, data)
+        result = self.runner.invoke(app, ['workflow','import',str(source)])
+        assert result.exit_code == 0, result.output
+        assert '节点: 2, 连接: 1' in result.output
 
-    @patch("src.cli.resolve_workspace")
-    def test_import_without_name_and_json_has_no_name(self, mock_ws):
-        """import 未提供名称且 JSON 中无 workflow_name 应报错"""
-        mock_ws.return_value = Path("/tmp/test_ws")
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            json.dump({"nodes": [], "edges": []}, f)
-            src_path = f.name
-
-        try:
-            result = self.runner.invoke(app, [
-                "workflow", "import",
-                src_path,
-            ])
-            self.assertNotEqual(result.exit_code, 0)
-            self.assertIn("名称", result.output)
-        finally:
-            os.unlink(src_path)
-
-    @patch("src.cli.WorkflowExecutor.load_workflow")
-    @patch("src.cli.resolve_workspace")
-    def test_import_with_name_override(self, mock_ws, mock_load):
-        """import --name 应覆盖 JSON 中的 workflow_name"""
-        mock_executor = MagicMock()
-        mock_executor.nodes = {}
-        mock_executor.edges = []
-        mock_executor.workflow_name = "original_name"
-        mock_load.return_value = mock_executor
-
-        mock_ws.return_value = Path("/tmp/test_ws")
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            json.dump({"workflow_name": "original_name", "nodes": [], "edges": []}, f)
-            src_path = f.name
-
-        try:
-            result = self.runner.invoke(app, [
-                "workflow", "import",
-                src_path,
-                "--name", "renamed_flow",
-            ])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("renamed_flow", result.output)
-        finally:
-            os.unlink(src_path)
-
-    @patch("src.cli.WorkflowExecutor.load_workflow")
-    @patch("src.cli.os.makedirs")
-    @patch("src.cli.resolve_workspace")
-    def test_import_shows_node_edge_count(self, mock_ws, mock_makedirs, mock_load):
-        """import 应显示节点数和连接数"""
-        mock_executor = MagicMock()
-        mock_executor.nodes = {"n1": MagicMock(), "n2": MagicMock()}
-        mock_executor.edges = [MagicMock()]
-        mock_executor.workflow_name = "count_test"
-        mock_load.return_value = mock_executor
-
-        mock_ws.return_value = Path("/tmp/test_ws")
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            json.dump({"workflow_name": "count_test", "nodes": [], "edges": []}, f)
-            src_path = f.name
-
-        try:
-            result = self.runner.invoke(app, [
-                "workflow", "import",
-                src_path,
-            ])
-            self.assertEqual(result.exit_code, 0)
-            self.assertIn("2", result.output)   # 2 nodes
-            self.assertIn("1", result.output)   # 1 edge
-        finally:
-            os.unlink(src_path)
-
-
-# ===================================================================
-# 3. 帮助信息中包含新命令
-# ===================================================================
 
 class TestCLIHelpContainsNewCommands(unittest.TestCase):
     """验证 export/import 出现在帮助中"""

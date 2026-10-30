@@ -498,6 +498,7 @@ def run(
         False, "--json", "-j", help="以 JSON 格式输出执行报告（适合管道/集成）"
     ),
     node: Optional[str] = typer.Option(None, "--node", help="只执行目标节点及其必需上游节点"),
+    reuse_run: Optional[str] = typer.Option(None, "--reuse-run", help="显式复用该成功运行的有效上游快照；目标仍重新执行"),
 ):
     """执行工作流"""
     _init(verbose)
@@ -665,6 +666,7 @@ def run(
             trigger_type="cli",
             target_node_id=node,
             handle_interrupt=True,
+            reuse_run_id=reuse_run,
             initial_data=initial_data,
             callbacks=WorkflowRunCallbacks(
                 on_environment_ready=on_environment_ready,
@@ -834,6 +836,7 @@ def schedule_update(
     task_id: str = typer.Argument(..., help="任务 ID"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="新任务名称"),
     cron: Optional[str] = typer.Option(None, "--cron", "-c", help="新 Cron 表达式"),
+    workflow: Optional[str] = typer.Option(None, "--workflow", help="更换关联工作流路径"),
     enabled: Optional[bool] = typer.Option(None, "--enabled/--disabled", help="启用/禁用"),
 ):
     """更新定时任务"""
@@ -846,6 +849,8 @@ def schedule_update(
     updates = {}
     if name is not None:
         updates["workflow_name"] = name
+    if workflow is not None:
+        updates["workflow_path"] = workflow
     if cron is not None:
         updates["cron_expression"] = cron
     if enabled is not None:
@@ -855,7 +860,12 @@ def schedule_update(
         console.print("[yellow]未提供任何更新字段[/]")
         return
 
-    if mgr.update_task(task_id, **updates):
+    try:
+        updated = mgr.update_task(task_id, **updates)
+    except (ValueError, OSError, MozikitError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(1)
+    if updated:
         changed = ", ".join(f"{k}={v}" for k, v in updates.items())
         console.print(f"[green]定时任务已更新:[/] {task_id} ({changed})")
     else:
@@ -873,7 +883,10 @@ def schedule_run(
     if not task:
         console.print(f"[red]错误:[/] 任务不存在: {task_id}")
         raise typer.Exit(code=1)
-    mgr.run_now(task_id)
+    report = mgr.run_now(task_id, wait=True)
+    if isinstance(report, dict) and not report.get('success'):
+        console.print(f"[red]定时任务执行失败:[/] {report.get('error', '未知错误')}")
+        raise typer.Exit(1)
 
 
 @schedule_app.command("status")
@@ -1345,6 +1358,8 @@ def node_generate(
     input_spec: str = typer.Option("", "--input", "-i", help="输入说明"),
     output_spec: str = typer.Option("", "--output", "-o", help="输出说明"),
     constraints: str = typer.Option("", "--constraints", "-c", help="约束条件"),
+    example_input: str = typer.Option("", "--example-input", help="示例输入"),
+    example_output: str = typer.Option("", "--example-output", help="示例输出"),
 ):
     """AI 生成自定义节点（需在配置中设置 AI 接口）"""
     mgr = ConfigManager()
@@ -1362,6 +1377,8 @@ def node_generate(
         "input_spec": input_spec,
         "output_spec": output_spec,
         "constraints": constraints,
+        "example_input": example_input,
+        "example_output": example_output,
     }
 
     with Status("[bold yellow]AI 生成中...[/]", console=console) as status:
@@ -1388,6 +1405,7 @@ def node_generate(
             config_schema=result.config_schema,
             dependencies=result.dependencies,
             category=result.category,
+            version=result.version,
         )
         if not node_def:
             console.print("[red]错误:[/] 节点创建失败（可能已存在同名节点）")
@@ -1400,7 +1418,7 @@ def node_generate(
             console.print(f"  [dim]依赖:[/] {', '.join(result.dependencies)}")
         if result.safety_review and result.safety_review.risk_level == "medium":
             console.print(f"  [yellow]⚠ 低风险:[/] {'; '.join(result.safety_review.all_risks())}")
-    except (ValueError, MozikitError) as e:
+    except (ValueError, OSError, MozikitError) as e:
         console.print(f"[red]错误:[/] {e}")
         raise typer.Exit(code=1)
 
@@ -2296,98 +2314,57 @@ def workflow_stats():
 # ── workflow create ─────────────────────────────────
 
 @workflow_app.command("create")
-def workflow_create(
-    name: str = typer.Argument(..., help="工作流名称"),
-):
-    """创建新的空工作流"""
-    from src.core import resolve_workspace
-    ws = resolve_workspace()
-    wf_dir = ws / name
-    wf_path = wf_dir / "workflow.json"
-
-    if wf_path.exists():
-        console.print(f"[red]错误:[/] 工作流已存在: {wf_path}")
-        raise typer.Exit(code=1)
-
-    executor = WorkflowExecutor(name)
-    os.makedirs(str(wf_dir), exist_ok=True)
-    executor.save_workflow(str(wf_path))
-    console.print(f"[green]✓[/] 工作流已创建: [bold]{name}[/]")
-    console.print(f"  路径: {wf_path}")
+def workflow_create(name: str = typer.Argument(..., help="工作流名称")):
+    """创建新的空工作流。"""
+    from src.core.workflow_lifecycle import WorkflowLifecycle
+    try:
+        path = WorkflowLifecycle(config_manager=ConfigManager()).create(name)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]工作流已创建:[/] {path}")
 
 
 # ── workflow delete ─────────────────────────────────
 
 @workflow_app.command("delete")
-def workflow_delete(
-    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
-):
-    """删除工作流"""
-    path = Path(workflow_path)
-    if not path.exists():
-        console.print(f"[red]错误:[/] 工作流文件不存在: {path}")
-        raise typer.Exit(code=1)
-
-    wf_dir = path.parent
-    name = wf_dir.name
-    shutil.rmtree(str(wf_dir))
-    console.print(f"[green]✓[/] 工作流已删除: [bold]{name}[/]")
+def workflow_delete(workflow_path: str = typer.Argument(..., help="工作流文件路径")):
+    """工作流 delete；保留用户数据并校验工作区边界。"""
+    from src.core.workflow_lifecycle import WorkflowLifecycle
+    try:
+        result = WorkflowLifecycle(config_manager=ConfigManager()).delete(workflow_path)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]工作流已删除:[/] {workflow_path}")
 
 
 # ── workflow rename ─────────────────────────────────
 
 @workflow_app.command("rename")
-def workflow_rename(
-    workflow_path: str = typer.Argument(..., help="工作流文件路径"),
-    new_name: str = typer.Argument(..., help="新工作流名称"),
-):
-    """重命名工作流"""
-    executor = _load_workflow(workflow_path)
-
-    from src.core import resolve_workspace
-    ws = resolve_workspace()
-    new_dir = ws / new_name
-    new_path = new_dir / "workflow.json"
-
-    if new_path.exists():
-        console.print(f"[red]错误:[/] 目标名称已存在: {new_path}")
-        raise typer.Exit(code=1)
-
-    old_dir = Path(workflow_path).parent
-    old_name = executor.workflow_name
-
-    executor.workflow_name = new_name
-    os.makedirs(str(new_dir), exist_ok=True)
-    executor.save_workflow(str(new_path))
-    shutil.rmtree(str(old_dir))
-    console.print(f"[green]✓[/] 工作流已重命名: [bold]{old_name}[/] → [bold]{new_name}[/]")
+def workflow_rename(workflow_path: str = typer.Argument(...), new_name: str = typer.Argument(...)):
+    """工作流 rename；保留用户数据并校验工作区边界。"""
+    from src.core.workflow_lifecycle import WorkflowLifecycle
+    try:
+        result = WorkflowLifecycle(config_manager=ConfigManager()).rename(workflow_path, new_name)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]工作流已重命名:[/] {workflow_path} → {result}")
 
 
 # ── workflow copy ───────────────────────────────────
 
 @workflow_app.command("copy")
-def workflow_copy(
-    workflow_path: str = typer.Argument(..., help="源工作流文件路径"),
-    new_name: str = typer.Argument(..., help="新工作流名称"),
-):
-    """复制工作流"""
-    executor = _load_workflow(workflow_path)
-
-    from src.core import resolve_workspace
-    ws = resolve_workspace()
-    new_dir = ws / new_name
-    new_path = new_dir / "workflow.json"
-
-    if new_path.exists():
-        console.print(f"[red]错误:[/] 目标名称已存在: {new_path}")
-        raise typer.Exit(code=1)
-
-    old_name = executor.workflow_name
-    executor.workflow_name = new_name
-    os.makedirs(str(new_dir), exist_ok=True)
-    executor.save_workflow(str(new_path))
-    console.print(f"[green]✓[/] 工作流已复制: [bold]{old_name}[/] → [bold]{new_name}[/]")
-    console.print(f"  路径: {new_path}")
+def workflow_copy(workflow_path: str = typer.Argument(...), new_name: str = typer.Argument(...)):
+    """工作流 copy；保留用户数据并校验工作区边界。"""
+    from src.core.workflow_lifecycle import WorkflowLifecycle
+    try:
+        result = WorkflowLifecycle(config_manager=ConfigManager()).copy(workflow_path, new_name)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]工作流已复制:[/] {result}")
 
 
 # ── workflow add-node ───────────────────────────────
@@ -2565,9 +2542,10 @@ def workflow_disconnect(
     executor.edges.remove(edge_to_remove)
 
     # 更新节点的 inputs/outputs
-    if to_id in executor.nodes and from_id in executor.nodes[to_id].inputs:
+    still_connected = any(e.from_node == from_id and e.to_node == to_id for e in executor.edges)
+    if not still_connected and to_id in executor.nodes and from_id in executor.nodes[to_id].inputs:
         executor.nodes[to_id].inputs.remove(from_id)
-    if from_id in executor.nodes and to_id in executor.nodes[from_id].outputs:
+    if not still_connected and from_id in executor.nodes and to_id in executor.nodes[from_id].outputs:
         executor.nodes[from_id].outputs.remove(to_id)
 
     positions = _extract_node_positions(workflow_path)
@@ -2597,53 +2575,19 @@ def workflow_export(
 # ── workflow import ────────────────────────────────
 
 @workflow_app.command("import")
-def workflow_import(
-    source: str = typer.Argument(..., help="JSON 文件路径"),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="工作流名称（覆盖 JSON 内的名称）"),
-):
-    """从 JSON 文件导入工作流
-
-    支持标准工作流 JSON 格式，也可直接导入 export 导出的文件。
-    使用 --name 可在导入时重命名工作流。
-    """
-    from src.core import resolve_workspace
-
-    path = Path(source)
-    if not path.exists():
-        console.print(f"[red]错误:[/] 文件不存在: {path}")
-        raise typer.Exit(code=1)
-
+def workflow_import(source: str = typer.Argument(..., help="JSON 文件路径"),
+                    name: Optional[str] = typer.Option(None, "--name", "-n")):
+    """导入工作流 JSON；附件需另行提供，新工作流默认不活动。"""
+    from src.core.workflow_lifecycle import WorkflowLifecycle
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        console.print(f"[red]错误:[/] JSON 解析失败: {e}")
-        raise typer.Exit(code=1)
-
-    workflow_name = name or data.get("workflow_name")
-    if not workflow_name:
-        console.print("[red]错误:[/] 无法确定工作流名称，请使用 --name 指定")
-        raise typer.Exit(code=1)
-
-    ws = resolve_workspace()
-    wf_dir = ws / workflow_name
-    wf_path = wf_dir / "workflow.json"
-
-    if wf_path.exists():
-        console.print(f"[red]错误:[/] 工作流已存在: {wf_path}")
-        console.print("  [dim]如需覆盖，请先执行 workflow delete 删除[/]")
-        raise typer.Exit(code=1)
-
-    # 通过 load_workflow 验证结构完整性，再保存到目标位置
-    executor = WorkflowExecutor.load_workflow(str(path))
-    executor.workflow_name = workflow_name
-
-    os.makedirs(str(wf_dir), exist_ok=True)
-    executor.save_workflow(str(wf_path))
-
-    console.print(f"[green]✓[/] 工作流已导入: [bold]{workflow_name}[/]")
-    console.print(f"  路径: {wf_path}")
-    console.print(f"  节点: {len(executor.nodes)}, 连接: {len(executor.edges)}")
+        path = WorkflowLifecycle(config_manager=ConfigManager()).import_json(source, name)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]错误:[/] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]工作流已导入:[/] {path}")
+    data = __import__("json").loads(path.read_text(encoding="utf-8"))
+    console.print(f"节点: {len(data['nodes'])}, 连接: {len(data['edges'])}")
+    console.print("JSON 不包含附件，相对资源需另行提供。")
 
 
 # ── workflow sync 命令组 ──────────────────────────
@@ -2975,6 +2919,9 @@ _register_parity_commands(app, node_app, workflow_app, env_app, config_app)
 
 def run_cli():
     """由 main.py 调用的入口函数"""
+    import signal
+    if hasattr(signal, 'SIGBREAK'):
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
     try:
         app()
     except KeyboardInterrupt:

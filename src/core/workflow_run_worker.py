@@ -46,6 +46,8 @@ class WorkflowRunWorker(QThread):
         self.trigger_type = trigger_type
         self.prepare_env = prepare_env
         self.skip_successful_nodes = skip_successful_nodes
+        self.target_node_id = None
+        self.reuse_run_id = None
         self.workflow_path = workflow_path
         self.dispatcher = WorkflowRunDispatcher(
             config_manager=config_manager or executor.config_manager
@@ -62,6 +64,8 @@ class WorkflowRunWorker(QThread):
                 trigger_type=self.trigger_type,
                 prepare_environment=self.prepare_env,
                 skip_successful_nodes=self.skip_successful_nodes,
+                target_node_id=self.target_node_id,
+                reuse_run_id=self.reuse_run_id,
                 callbacks=WorkflowRunCallbacks(
                     on_environment_preparing=self.environment_preparing.emit,
                     on_environment_ready=self.environment_ready.emit,
