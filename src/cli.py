@@ -2095,6 +2095,25 @@ def sync_config(
     console.print(f"  路径: {current['sync_path']}")
 
 
+@app.command("mcp")
+def mcp_serve(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="工作流根目录"),
+    transport: str = typer.Option("stdio", "--transport", help="stdio 或 streamable-http"),
+    host: str = typer.Option("127.0.0.1", "--host", help="HTTP 监听地址"),
+    port: int = typer.Option(8000, "--port", help="HTTP 端口"),
+    allowed_hosts: Optional[List[str]] = typer.Option(None, "--allowed-host", help="额外允许的 Host，含端口，可重复"),
+    allowed_origins: Optional[List[str]] = typer.Option(None, "--allowed-origin", help="额外允许的 Origin，可重复"),
+):
+    """启动 MCP 服务（需要 MCP 可选依赖，Python >= 3.10）"""
+    from src.mcp_server import run_server
+
+    try:
+        run_server(workspace, transport, host, port, allowed_hosts, allowed_origins)
+    except (RuntimeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
+
+
 # ── serve 命令 ─────────────────────────────────────
 
 @app.command()

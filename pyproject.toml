@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=64"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mozikit"
@@ -21,6 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=1.30,<2; python_version >= '3.10'",
+    "starlette>=0.27; python_version >= '3.10'",
+    "uvicorn>=0.32; python_version >= '3.10'",
+]
 serve = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
@@ -30,6 +35,7 @@ serve = [
 mozikit = "src.cli:run_cli"
 mozikit-cli = "src.cli:run_cli"
 mozikit-gui = "main:run_gui"
+mozikit-mcp = "src.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

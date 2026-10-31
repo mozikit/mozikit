@@ -54,7 +54,7 @@ def init_logging(level: int = None) -> Path:
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
 
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(CONSOLE_LEVEL)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)

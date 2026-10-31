@@ -47,3 +47,33 @@ def mock_registry():
     registry = MagicMock()
     registry._user_data_dir = "/tmp/test_user_data"
     return registry
+
+
+@pytest.fixture
+def mcp_project(tmp_path):
+    """An actual dependency-free workflow usable by both MCP transports."""
+    import json
+    import venv
+
+    workspace = tmp_path / "workflows"
+    workflow_dir = workspace / "demo"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "workflow.json").write_text(json.dumps({
+        "version": 2, "workflow_name": "demo",
+        "nodes": [{"node_id": "n1", "node_type": "custom_echo", "config": {}}], "edges": [],
+    }))
+    node_dir = tmp_path / "user_data/custom_nodes/custom_echo"
+    node_dir.mkdir(parents=True)
+    (node_dir / "node.json").write_text(json.dumps({
+        "node_type": "custom_echo", "name": "Echo", "version": "1.0.0", "dependencies": [],
+    }))
+    (node_dir / "node.py").write_text(
+        "def execute(self, input_data):\n"
+        "    print('hello from node')\n"
+        "    if input_data.get('fail'):\n"
+        "        raise ValueError('requested failure')\n"
+        "    return {**input_data, 'echo': '你好 MCP'}\n", encoding="utf-8"
+    )
+    venv.EnvBuilder(with_pip=False).create(workflow_dir / ".venv")
+    env = {**os.environ, "PYTHONPATH": PROJECT_ROOT, "PYTHONIOENCODING": "utf-8"}
+    return tmp_path, workspace, env

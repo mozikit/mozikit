@@ -61,6 +61,13 @@ Mozikit 是一个**现代化的 Python 可视化工作流自动化工具**。它
 - 基于 FastAPI 的 HTTP 接口，提供工作流执行与定时任务管理
 - 自动生成 OpenAPI 文档（`/docs`），健康检查端点（`/health`）
 
+### 🔌 MCP Server
+- 使用官方 MCP Python SDK，通过 stdio 或 Streamable HTTP 向 AI 客户端提供 7 个工作流工具
+- 支持列表、读取、结构校验、执行、运行历史及分页日志，无需启动 GUI
+- Python 3.10+，在源码目录安装 `pip install -e ".[mcp]"`，使用 `mozikit mcp --workspace PATH` 启动
+- HTTP 模式使用 `mozikit mcp --transport streamable-http`，默认端点为 `http://127.0.0.1:8000/mcp`
+- 详细配置见 [MCP Server 接入指南](docs/user-guide/MCP.md)
+
 ---
 
 ## 🏗️ 项目结构
@@ -201,6 +208,7 @@ python main.py --help
 python main.py run workflows/example_basic_calc/workflow.json
 python main.py schedule list
 python main.py serve --port 8080
+python main.py mcp --workspace /absolute/path/to/workflows
 ```
 
 ### 打包为可执行文件
