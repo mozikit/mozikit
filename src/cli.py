@@ -2973,6 +2973,9 @@ def help():
 from src.cli_parity import register as _register_parity_commands
 _register_parity_commands(app, node_app, workflow_app, env_app, config_app)
 
+from src.cli_acp import register as _register_acp_commands
+_register_acp_commands(app)
+
 def run_cli():
     """由 main.py 调用的入口函数"""
     try:

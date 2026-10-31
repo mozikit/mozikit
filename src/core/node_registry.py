@@ -112,9 +112,32 @@ class NodeRegistry:
             register_builtin_node_executors,
         )
         from .mcp_tool_executor import register_mcp_tool_executor
+        from .acp_node_executor import (
+            ACP_AGENT_CONFIG_SCHEMA,
+            ACP_AGENT_INPUT_SCHEMA,
+            ACP_AGENT_OUTPUT_SCHEMA,
+            register_acp_agent_executor,
+        )
 
         register_builtin_node_executors()
         register_mcp_tool_executor()
+        register_acp_agent_executor()
+
+        # ACP's native execution contract is owned by Core even if a stale
+        # node snapshot supplies presentation metadata with the same name.
+        acp = self._nodes.get("acp_agent")
+        if acp is None:
+            acp = NodeDefinition(
+                node_type="acp_agent", name="ACP Agent", description="连接外部 ACP Agent 并将回复传给下游节点",
+                source=NodeSource.OFFICIAL, category="AI", source_code="", config_schema={},
+                metadata={"icon": "🤖"},
+            )
+            self._nodes["acp_agent"] = acp
+        acp.config_schema = ACP_AGENT_CONFIG_SCHEMA
+        acp.input_schema = ACP_AGENT_INPUT_SCHEMA
+        acp.output_schema = ACP_AGENT_OUTPUT_SCHEMA
+        acp.dependencies = []
+        acp.registrations = {**(acp.registrations or {}), "native_executor": {"id": "acp_agent"}}
 
         # Reserved built-ins must keep their trusted native executor and
         # graph metadata even when an official snapshot supplied same-named

@@ -8,6 +8,17 @@
   4. NativeNodeExecutor — 由 Core 注册、在主进程同步执行的受信任执行器
 """
 from typing import Callable, Dict, Optional, Protocol
+from dataclasses import dataclass
+from pathlib import Path
+from threading import Event
+
+
+@dataclass(frozen=True)
+class NativeExecutionContext:
+    """Host context supplied only to executors that explicitly opt in."""
+
+    workflow_dir: Path
+    stop_event: Event
 
 # ── 类型别名 ──────────────────────────────────────────────
 
@@ -58,10 +69,12 @@ editors: _Registry = _Registry()
 native_executors: _Registry = _Registry()
 
 
-def execute_native(executor_id: str, **kwargs) -> dict:
+def execute_native(executor_id: str, *, execution_context=None, **kwargs) -> dict:
     executor = native_executors.get(executor_id)
     if executor is None:
         raise LookupError(f"Native executor is not registered: {executor_id}")
+    if getattr(executor, "supports_execution_context", False):
+        kwargs["execution_context"] = execution_context
     return executor.execute(**kwargs)
 
 

@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "workflow_id": "acp-summary-example",
+  "workflow_name": "acp_summary",
+  "active": false,
+  "nodes": [
+    {
+      "node_id": "agent",
+      "node_type": "acp_agent",
+      "config": {
+        "agent": "codex-acp",
+        "args": [],
+        "cwd": "",
+        "prompt": "请完成以下任务：{% task %}",
+        "timeout": 120
+      },
+      "position": {"x": 100, "y": 100}
+    },
+    {
+      "node_id": "result",
+      "node_type": "debug",
+      "config": {"show_timestamp": false},
+      "position": {"x": 450, "y": 100}
+    }
+  ],
+  "edges": [
+    {"from_node": "agent", "from_port": "text", "to_node": "result", "to_port": "input"}
+  ]
+}

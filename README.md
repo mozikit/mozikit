@@ -53,8 +53,8 @@ Portable ZIP（`Mozikit-Windows-x64.zip`）包含 GUI、CLI、共享运行时、
 - **多标签页** — 同时编辑多个工作流，标签页拖拽排序，修改自动保存
 
 ### 🤖 AI 辅助
-- **AI 智能聊天** — 内置对话面板，支持 OpenAI 兼容接口
-- **AI 工具调用** — 通过对话直接操作画布：创建/删除/连接节点、自动布局
+- **ACP 外部 Agent 接入** — CLI 和工作流中的 ACP Agent 节点均可连接本机 Agent，支持文本提示、流式更新、会话与取消，详见 [接入指南](docs/user-guide/ACP_CLIENT.md)
+- **Agent 自动化入口** — CLI 提供工作流编辑、执行与状态查询，支持机器可读 JSON 输出
 - **AI 节点生成** — 用自然语言描述需求，AI 自动生成节点代码
 
 ### ⏰ 定时调度
@@ -293,6 +293,9 @@ Mozikit 提供完整的 CLI（基于 Typer + Rich），**无需启动 GUI** 即�
 
 ```
 mozikit
+├── acp                            外部 ACP Agent 客户端
+│   ├── check --agent <executable>  检查协议版本、能力和认证方式
+│   └── prompt <text> --agent ...  创建/加载会话并发送提示（--json, --timeout）
 ├── run <path> | --name <name>     执行工作流
 ├── schedule                       定时任务管理
 │   ├── list                       列出所有任务

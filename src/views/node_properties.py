@@ -41,7 +41,7 @@ class _PathEditor(QWidget):
         layout.addWidget(browse)
 
     def _browse(self):
-        selected = QFileDialog.getExistingDirectory(self, "选择监听目录", self.value())
+        selected = QFileDialog.getExistingDirectory(self, "选择目录", self.value())
         if selected:
             self.line_edit.setText(selected)
 

@@ -4,7 +4,7 @@ import sys
 # 已知 CLI 子命令（与 src/cli.py 保持一致）
 _CLI_COMMANDS = {
     "run", "schedule", "env", "node", "config", "workflow", "runtime",
-    "cli", "serve", "help",
+    "cli", "serve", "help", "acp",
 }
 
 

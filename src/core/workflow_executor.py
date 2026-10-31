@@ -92,8 +92,10 @@ class WorkflowExecutor:
         self._worker_process = None
         from .builtin_node_executors import register_builtin_node_executors
         from .mcp_tool_executor import register_mcp_tool_executor
+        from .acp_node_executor import register_acp_agent_executor
         register_builtin_node_executors()
         register_mcp_tool_executor()
+        register_acp_agent_executor()
 
     def add_node(self, node: NodeBase):
         """添加节点"""
@@ -612,16 +614,26 @@ class WorkflowExecutor:
         started_at = datetime.now()
 
         if native_id:
+            native_logs = []
+
+            def native_log(line):
+                native_logs.append(str(line))
+                if on_node_log:
+                    on_node_log(node_id, str(line))
+
             try:
-                from .node_extension_registries import execute_native
+                from .node_extension_registries import execute_native, NativeExecutionContext
                 raw_output = execute_native(
                     native_id, node=node, input_data=input_data or {},
                     context=self.context,
                     timeout=self.config_manager.get_node_timeout_seconds(),
+                    execution_context=NativeExecutionContext(
+                        workflow_dir=self.uv_manager.get_workflow_dir(self.workflow_name).resolve(),
+                        stop_event=self._stop_event,
+                    ),
                     progress_callback=(lambda p, m="": on_node_progress(node_id, p, m)
                                        if on_node_progress else None),
-                    log_callback=(lambda line: on_node_log(node_id, line)
-                                  if on_node_log else None),
+                    log_callback=native_log,
                 )
                 if not isinstance(raw_output, dict):
                     raise TypeError("Native node output must be a dict")
@@ -636,7 +648,7 @@ class WorkflowExecutor:
                 "started_at": started_at.isoformat(timespec="seconds"),
                 "finished_at": datetime.now().isoformat(timespec="seconds"),
                 "script_path": "", "input": self._sanitize_for_report(input_data or {}),
-                "output": self._sanitize_for_report(raw_output), "stdout": "",
+                "output": self._sanitize_for_report(raw_output), "stdout": "\n".join(native_logs),
                 "stderr": "", "error": error, "traceback": "",
             }
 
