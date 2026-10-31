@@ -21,6 +21,7 @@ def test_imports():
         return False
 
 
+@pytest.mark.qt
 def test_overview_refresh_logic():
     """测试首页刷新逻辑"""
     print("\n测试2: 检查首页刷新逻辑...")
@@ -31,6 +32,8 @@ def test_overview_refresh_logic():
         
         # 创建应用（测试需要）
         app = QApplication.instance()
+        if app is not None and not isinstance(app, QApplication):
+            pytest.skip("现有 QCoreApplication 不能创建 GUI 控件；请在独立进程运行此 GUI 测试")
         if app is None:
             app = QApplication(sys.argv)
         
@@ -59,6 +62,7 @@ def test_overview_refresh_logic():
         return False
 
 
+@pytest.mark.qt
 def test_workflow_tab_save():
     """测试工作流保存逻辑"""
     print("\n测试3: 检查保存逻辑...")
@@ -68,6 +72,8 @@ def test_workflow_tab_save():
         from PySide6.QtWidgets import QApplication
         
         app = QApplication.instance()
+        if app is not None and not isinstance(app, QApplication):
+            pytest.skip("现有 QCoreApplication 不能创建 GUI 控件；请在独立进程运行此 GUI 测试")
         if app is None:
             app = QApplication(sys.argv)
         

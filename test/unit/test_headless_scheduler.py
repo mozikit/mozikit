@@ -376,7 +376,7 @@ class TestHeadlessSchedulerConcurrency(unittest.TestCase):
         """同一任务不应并发执行（第二次触发应被跳过）"""
         import tempfile
         import json
-        import time as _time
+        from threading import Event
 
         tmp_wf = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump({"workflow_name": "test", "nodes": [], "edges": [], "version": 2}, tmp_wf)
@@ -384,34 +384,32 @@ class TestHeadlessSchedulerConcurrency(unittest.TestCase):
 
         try:
             with patch("src.core.workflow_executor.WorkflowExecutor.load_workflow") as mock_load:
-                def _slow(*a, **kw):
-                    _time.sleep(0.5)
-                    return MagicMock()
-                mock_load.return_value = MagicMock()
-                # 让 execute 变慢
-                mock_load.return_value.execute = lambda **kw: (_time.sleep(0.3), {"success": True})[1]
+                started, release, completed = Event(), Event(), Event()
+                executor = mock_load.return_value
+                executor.workflow_name = "test"
+                executor.build_execution_record.return_value = {
+                    "id": "test-run", "workflow_name": "test", "status": "success",
+                }
+
+                def execute(**kwargs):
+                    started.set()
+                    release.wait(timeout=5)
+                    return {"success": True}
+
+                executor.execute.side_effect = execute
+                self.scheduler.on_task_complete(lambda record: completed.set())
 
                 task_id = self.scheduler.add_task("test", tmp_wf.name)
                 task = self.scheduler.get_task(task_id)
 
-                calls = []
-                def _call():
+                try:
                     self.scheduler._execute_task(task)
-                    calls.append(1)
-
-                import threading
-                t1 = threading.Thread(target=_call)
-                t2 = threading.Thread(target=_call)
-                t1.start()
-                _time.sleep(0.05)
-                t2.start()
-                t1.join()
-                t2.join()
-
-                # 第一个调用启动后台任务（flag=True），第二个应被跳过
-                # 所以 calls 应该有 2（两个 _execute_task 调用都返回）
-                # 但后台只实际执行一次
-                self.assertEqual(len(calls), 2)
+                    self.assertTrue(started.wait(timeout=5))
+                    self.scheduler._execute_task(task)
+                    executor.execute.assert_called_once()
+                finally:
+                    release.set()
+                self.assertTrue(completed.wait(timeout=5))
         finally:
             os.unlink(tmp_wf.name)
 
@@ -432,7 +430,11 @@ class TestHeadlessSchedulerPersistence(unittest.TestCase):
 
     def test_tasks_survive_scheduler_restart(self):
         """任务应在调度器重启后仍然存在"""
-        s1 = HeadlessScheduler(ConfigManager(str(self.config_path)))
+        config = ConfigManager(str(self.config_path))
+        # The persistence assertion and directory cleanup require writes to
+        # finish before the scheduler is reopened or the test directory removed.
+        config.save_config = config.save_config_sync
+        s1 = HeadlessScheduler(config)
         id1 = s1.add_task("wf1", "/path/wf1.json", "0 * * * *")
         id2 = s1.add_task("wf2", "/path/wf2.json", "0 0 * * *")
         s1.config_manager.save_config_sync()
